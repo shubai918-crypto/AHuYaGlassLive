@@ -3,28 +3,29 @@ name: Build AHuYaGlassLive
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - '**.yml'
   workflow_dispatch:
 
 jobs:
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
+      - name: Setup Java
+        uses: actions/setup-java@v5
         with:
           distribution: "zulu"
           java-version: "17"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # ⭐ 仓库里没有二进制的 gradlew，用 runner 自带 Gradle 现场生成 Wrapper
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
 
-      # ① 还原签名文件（仅当配置了 ANDROID_KEYSTORE secret 时执行）
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 还原签名文件（没配 secret 时自动跳过，不影响跑流水线）
       - name: Restore Keystore
         id: keystore_file
         if: env.ANDROID_KEYSTORE != ''
@@ -32,28 +33,24 @@ jobs:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
         uses: timheuer/base64-to-file@v2
         with:
-          fileName: 'release-key.jks'
+          fileName: 'my-release-key.jks'
           encodedString: ${{ secrets.ANDROID_KEYSTORE }}
 
-      # ② 生成 keystore.properties 供 Gradle 读取
       - name: Create keystore.properties
         if: env.ANDROID_KEYSTORE != ''
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
           echo "storeFile=${{ steps.keystore_file.outputs.filePath }}" > keystore.properties
-          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> keystore.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> keystore.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD || '123456' }}" >> keystore.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS || 'mykey' }}" >> keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD || '123456' }}" >> keystore.properties
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: AHuYaGlassLive-Android-Build
           path: app/build/outputs/apk/release/*.apk
