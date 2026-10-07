@@ -1,26 +1,36 @@
-name: Get My Secret Base64
+name: Generate Keystore
 
-on: workflow_dispatch
+on:
+  workflow_dispatch: # 仅允许手动点击触发
 
 jobs:
-  generate:
-    runs-on: ubuntu-latest
+  generate-key:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Generate and Show Base64
+      - name: Generate JKS
         run: |
-          # 1. 生成密钥文件
-          keytool -genkey -v \
-            -keystore my-release-key.jks \
-            -keyalg RSA \
-            -keysize 2048 \
+          # 使用 Java 自带的 keytool 生成 JKS 密钥库
+          # 密码统一设置为 123456，别名 mykey，有效期 10000 天
+          keytool -genkeypair -v \
+            -storetype JKS \
+            -keyalg RSA -keysize 2048 \
             -validity 10000 \
-            -alias mykey \
             -storepass 123456 \
             -keypass 123456 \
-            -dname "CN=User, O=App, C=CN"
+            -alias mykey \
+            -keystore my-release-key.jks \
+            -dname "CN=AHuYa, OU=Dev, O=AHuYa, L=Beijing, ST=Beijing, C=CN"
+          echo "✅ 密钥生成成功！"
 
-          # 2. 转换为 Base64 字符串并打印出来
-          echo "- COPY THE TEXT BELOW -"
-          base64 -w 0 my-release-key.jks
-          echo ""
-          echo "- COPY THE TEXT ABOVE -"
+      - name: Base64 Encode
+        run: |
+          # -w 0 表示不换行，生成纯净的单行 base64 字符串，方便复制
+          base64 -w 0 my-release-key.jks > my-release-key.base64.txt
+          echo "✅ Base64 编码完成！"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: keystore-base64
+          path: my-release-key.base64.txt
+          retention-days: 1 # 只保留1天，用完即焚
