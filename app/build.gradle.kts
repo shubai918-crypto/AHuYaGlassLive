@@ -12,12 +12,12 @@ val hasKeystore = keystorePropsFile.exists()
 
 android {
     namespace = "cn.ahuya.glasslive"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "cn.ahuya.glasslive"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36   // 先稳在 36，避免 Android 17 新运行时行为；想尝鲜可改 37
         versionCode = 1
         versionName = "1.0.0"
     }
@@ -47,8 +47,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
@@ -73,6 +78,6 @@ dependencies {
 
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)
-    
+
     debugImplementation(libs.androidx.ui.tooling)
 }
