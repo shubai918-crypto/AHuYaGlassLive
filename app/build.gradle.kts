@@ -19,6 +19,10 @@ android {
         targetSdk = 36   // 先稳在 36，避免 Android 17 新运行时行为；想尝鲜可改 37
         versionCode = 1
         versionName = "1.0.0"
+
+    ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     signingConfigs {
