@@ -20,7 +20,7 @@ jobs:
 
       # ⭐ 仓库里没有二进制的 gradlew，用 runner 自带 Gradle 现场生成 Wrapper
       - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
+        run: gradle wrapper --gradle-version 9.6.0 --distribution-type bin
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
