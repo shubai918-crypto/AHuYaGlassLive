@@ -4,25 +4,19 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.ui.Modifier
+import cn.ahuya.glasslive.ui.play.LivePlayPage
 import cn.ahuya.glasslive.ui.theme.AHuYaTheme
+
+// TODO: 换成你想测试的房间号；首页房间列表在后续批次接入
+private const val DEFAULT_ROOM_ID = "919191"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge() // 开启边缘到边缘全屏
+        enableEdgeToEdge()
         setContent {
             AHuYaTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Text("AHuYaGlassLive 引擎启动成功！", color = MaterialTheme.colorScheme.primary)
-                }
+                LivePlayPage(roomId = DEFAULT_ROOM_ID)
             }
         }
     }
