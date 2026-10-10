@@ -151,11 +151,18 @@ object HuyaStreamResolver {
     // ================= 签名 & 播放地址 =================
 
     /** 对齐 Dart 版 generateWebAntiCode：三段 MD5 派生 wsSecret */
+    fun /** 对齐 Dart 版 generateWebAntiCode：三段 MD5 派生 wsSecret */
     fun generateWebAntiCode(antiCode: String, streamName: String, uid: Long): String {
-        val p = antiCode.split("&").mapNotNull { kv ->
+        // 使用最基础的 mutableMapOf，避免链式调用导致编译器类型推断崩溃
+        val p = mutableMapOf<String, String>()
+        for (kv in antiCode.split("&")) {
             val i = kv.indexOf('=')
-            if (i > 0) kv.substring(0, i) to kv.substring(i + 1).urlDecode() else null
-        }.toMutableMap()
+            if (i > 0) {
+                val key = kv.substring(0, i)
+                val value = kv.substring(i + 1).urlDecode()
+                p[key] = value
+            }
+        }
 
         val ss = (p["fm"] ?: "").urlDecode().substringBefore("_")
         val wsTime = p["wsTime"] ?: ""
