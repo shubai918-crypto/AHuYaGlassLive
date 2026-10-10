@@ -23,7 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
-// ⭐ 修正：Backdrop 2.0.1 的正确包名与 API
+import cn.ahuya.glasslive.ui.glass.GlassBottomBar // ⭐ 新增 Import
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 
@@ -37,22 +37,17 @@ fun LivePlayPage(
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
-    // ⭐ 液态玻璃采样层：必须用 remember 记住，然后作为 Modifier 传给容器
     val backdrop = rememberLayerBackdrop()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .layerBackdrop(backdrop) // 开启背景采样，后续玻璃控件才能"看透"视频
+            .layerBackdrop(backdrop)
             .background(Color.Black)
     ) {
         when (val s = state) {
             PlayState.Loading -> CenterText("正在连接虎牙直播间…")
-
-            is PlayState.Offline -> CenterText(
-                s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在或解析失败"
-            )
-
+            is PlayState.Offline -> CenterText(s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在")
             is PlayState.Error -> CenterText(s.msg)
 
             is PlayState.Playing -> {
@@ -60,13 +55,13 @@ fun LivePlayPage(
                     url = s.url,
                     onError = {
                         videoReady = false
-                        viewModel.onPlayerError()   // 自动降档/换线
+                        viewModel.onPlayerError()
                     },
                     onFirstFrame = { videoReady = true },
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                // 防黑屏遮罩：首帧渲染后 600ms 丝滑淡出
+                // 防黑屏遮罩
                 AnimatedVisibility(
                     visible = !videoReady,
                     enter = fadeIn(),
@@ -80,7 +75,11 @@ fun LivePlayPage(
                     }
                 }
 
-                // 👇 第 5-② 批我们将在这里放 GlassBottomBar（液态玻璃悬浮底栏）
+                // ⭐ 注入灵魂：液态玻璃悬浮底栏
+                GlassBottomBar(
+                    backdrop = backdrop,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
         }
     }
