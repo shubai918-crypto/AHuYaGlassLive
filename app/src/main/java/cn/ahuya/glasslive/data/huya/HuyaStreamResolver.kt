@@ -12,14 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URLEncoder
-import java.util.Base64
 
 object HuyaStreamResolver {
 
     private const val API_URL = "https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid="
     private const val WEB_URL = "https://www.huya.com/"
 
-    /** 线路优先级 al > hs > tx（对齐 Dart 版修正逻辑） */
     private val LINE_PRIORITY = mapOf("al" to 0, "hs" to 1, "tx" to 2)
 
     private val QUALITY_NAMES = mapOf(
@@ -27,7 +25,6 @@ object HuyaStreamResolver {
         2000 to "蓝光2M", 1000 to "超清", 500 to "流畅",
     )
 
-    /** 入口：API 端优先，失败自动回退网页端 */
     suspend fun resolve(roomId: String): HuyaStreamResult? =
         withContext(Dispatchers.IO) {
             try {
@@ -35,7 +32,6 @@ object HuyaStreamResolver {
             } catch (_: Exception) { null }
         }
 
-    // ================= API 端 =================
     private suspend fun resolveByApi(roomId: String): HuyaStreamResult? {
         return try {
             val root = JSONObject(HttpClient.get(API_URL + roomId, ua = HttpClient.MOBILE_UA))
@@ -62,7 +58,6 @@ object HuyaStreamResolver {
         } catch (_: Exception) { null }
     }
 
-    // ================= 网页端兜底 =================
     private suspend fun resolveByWeb(roomId: String): HuyaStreamResult? {
         return try {
             val html = HttpClient.get(WEB_URL + roomId)
@@ -86,7 +81,6 @@ object HuyaStreamResolver {
         } catch (_: Exception) { null }
     }
 
-    // ================= 公共解析 =================
     private fun extractStreamNode(root: JSONObject): JSONObject? {
         root.optJSONObject("stream")?.let { return it }
         val arr = root.optJSONArray("data") ?: return null
@@ -107,7 +101,6 @@ object HuyaStreamResolver {
         val multi = stream.optJSONArray("vMultiLine")
         if (streamName.isEmpty() || multi == null) return null
 
-        // ---- 线路 ----
         val lines = mutableListOf<HuyaLine>()
         for (i in 0 until multi.length()) {
             val o = multi.optJSONObject(i) ?: continue
@@ -124,7 +117,6 @@ object HuyaStreamResolver {
         }
         if (lines.isEmpty()) return null
 
-        // ---- 清晰度 ----
         val qualities = mutableListOf(StreamQuality(0, "原画"))
         val bits = stream.optJSONArray("vBitRate")
         for (i in 0 until (bits?.length() ?: 0)) {
@@ -148,12 +140,7 @@ object HuyaStreamResolver {
         )
     }
 
-    // ================= 签名 & 播放地址 =================
-
-    /** 对齐 Dart 版 generateWebAntiCode：三段 MD5 派生 wsSecret */
-    fun /** 对齐 Dart 版 generateWebAntiCode：三段 MD5 派生 wsSecret */
     fun generateWebAntiCode(antiCode: String, streamName: String, uid: Long): String {
-        // 使用最基础的 mutableMapOf，避免链式调用导致编译器类型推断崩溃
         val p = mutableMapOf<String, String>()
         for (kv in antiCode.split("&")) {
             val i = kv.indexOf('=')
@@ -180,14 +167,12 @@ object HuyaStreamResolver {
         }
     }
 
-    /** 拼装最终播放地址（quality.bitRate=0 时不附加 ratio，即原画） */
     fun buildPlayUrl(line: HuyaLine, quality: StreamQuality, uid: Long): String {
         val code = generateWebAntiCode(line.antiCode, line.streamName, uid)
         val ratio = if (quality.bitRate == 0) "" else "&ratio=${quality.bitRate}"
         return "${line.flvUrl}/${line.streamName}.${line.suffix}?$code$ratio"
     }
 
-    // ---- 正则小工具 ----
     private fun String.longOf(regex: String): Long =
         Regex(regex).find(this)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
     private fun String.strOf(regex: String): String =
