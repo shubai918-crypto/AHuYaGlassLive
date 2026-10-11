@@ -3,6 +3,7 @@ package cn.ahuya.glasslive.player
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cn.ahuya.glasslive.data.huya.HuyaDanmakuClient
+import cn.ahuya.glasslive.data.huya.HuyaOfflineException
 import cn.ahuya.glasslive.data.huya.HuyaStreamResolver
 import cn.ahuya.glasslive.data.huya.model.HuyaLine
 import cn.ahuya.glasslive.data.huya.model.HuyaStreamResult
@@ -40,7 +41,11 @@ class LivePlayViewModel : ViewModel() {
                 retryCount = 0
                 connectDanmaku(result)
                 playCurrent()
+            } catch (e: HuyaOfflineException) {
+                // ⭐ 明确告知：房间存在但主播下播了
+                _uiState.value = PlayState.Error("主播未开播：房间存在但当前不在直播，请换一个正在开播的房间号")
             } catch (e: Exception) {
+                // ⭐ 黑匣子：显示虎牙原始返回片段，便于定位
                 _uiState.value = PlayState.Error("解析失败: ${e.message}")
             }
         }
@@ -60,37 +65,17 @@ class LivePlayViewModel : ViewModel() {
         _uiState.value = PlayState.Playing(url, line, quality, res)
     }
 
-    /** 播放器报错：先降清晰度 -> 再换线路 -> 最后重新解析 */
     fun onPlayerError() {
         val res = currentResult ?: return
         retryCount++
-        if (currentQualityIndex < res.qualities.size - 1) {
-            currentQualityIndex++
-            playCurrent()
-            return
-        }
-        if (currentLineIndex < res.lines.size - 1) {
-            currentLineIndex++
-            currentQualityIndex = 0
-            playCurrent()
-            return
-        }
-        if (retryCount < 3) {
-            enterRoom(res.roomId)
-        } else {
-            _uiState.value = PlayState.Error("所有线路均不可用")
-        }
+        if (currentQualityIndex < res.qualities.size - 1) { currentQualityIndex++; playCurrent(); return }
+        if (currentLineIndex < res.lines.size - 1) { currentLineIndex++; currentQualityIndex = 0; playCurrent(); return }
+        if (retryCount < 3) enterRoom(res.roomId)
+        else _uiState.value = PlayState.Error("所有线路均不可用")
     }
 
-    fun switchQuality(index: Int) {
-        currentQualityIndex = index
-        playCurrent()
-    }
-
-    fun switchLine(index: Int) {
-        currentLineIndex = index
-        playCurrent()
-    }
+    fun switchQuality(index: Int) { currentQualityIndex = index; playCurrent() }
+    fun switchLine(index: Int) { currentLineIndex = index; playCurrent() }
 
     override fun onCleared() {
         super.onCleared()
@@ -100,12 +85,7 @@ class LivePlayViewModel : ViewModel() {
 
 sealed class PlayState {
     object Loading : PlayState()
-    data class Playing(
-        val url: String,
-        val line: HuyaLine,
-        val quality: StreamQuality,
-        val result: HuyaStreamResult,
-    ) : PlayState()
+    data class Playing(val url: String, val line: HuyaLine, val quality: StreamQuality, val result: HuyaStreamResult) : PlayState()
     data class Offline(val result: HuyaStreamResult?) : PlayState()
     data class Error(val msg: String) : PlayState()
 }
