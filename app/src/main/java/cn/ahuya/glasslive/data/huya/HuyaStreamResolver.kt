@@ -208,11 +208,20 @@ object HuyaStreamResolver {
                 val o = gsi.optJSONObject(i) ?: continue
                 val tag = o.optString("sCdnType").lowercase()
                 val name = o.optString("sStreamName").ifEmpty { streamNameGlobal }
-                val useHls = o.optInt("iIsHls") == 1 || o.optString("sHlsUrl").isNotEmpty()
-                lines += if (useHls) HuyaLine(tag, o.optString("sHlsUrl"), name,
-                    o.optString("sHlsUrlSuffix").ifEmpty { "m3u8" }, o.optString("sHlsAntiCode"), true)
-                else HuyaLine(tag, o.optString("sFlvUrl"), name,
-                    o.optString("sFlvUrlSuffix").ifEmpty { "flv" }, o.optString("sFlvAntiCode"), false)
+                // ⭐ HLS 线路
+                val hlsUrl = o.optString("sHlsUrl")
+                if (hlsUrl.isNotEmpty()) {
+                    lines += HuyaLine(tag, hlsUrl, name,
+                        o.optString("sHlsUrlSuffix").ifEmpty { "m3u8" },
+                        o.optString("sHlsAntiCode"), true)
+                }
+                // ⭐ FLV 线路（同 CDN 备选协议）
+                val flvUrl = o.optString("sFlvUrl")
+                if (flvUrl.isNotEmpty()) {
+                    lines += HuyaLine(tag, flvUrl, name,
+                        o.optString("sFlvUrlSuffix").ifEmpty { "flv" },
+                        o.optString("sFlvAntiCode"), false)
+                }
             }
         } else {
             val vml = deepFind(payload, "vMultiLine") as? JSONArray
