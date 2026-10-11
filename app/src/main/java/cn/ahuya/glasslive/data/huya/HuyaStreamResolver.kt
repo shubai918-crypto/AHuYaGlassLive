@@ -14,72 +14,110 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
+/** 房间存在但主播未开播 */
+class HuyaOfflineException(val nick: String) : Exception("主播未开播")
+
 object HuyaStreamResolver {
 
     private const val API_URL = "https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid="
     private const val WEB_URL = "https://www.huya.com/"
+    private const val M_WEB_URL = "https://m.huya.com/"
 
-    /** 线路优先级 al > hs > tx（对齐 Dart 版） */
     private val LINE_PRIORITY = mapOf("al" to 0, "hs" to 1, "tx" to 2)
-
     private val QUALITY_NAMES = mapOf(
         0 to "原画", 8000 to "蓝光8M", 4000 to "蓝光4M",
         2000 to "蓝光2M", 1000 to "超清", 500 to "流畅",
     )
 
-    /** 入口：API 优先，Web 兜底；都失败则抛出具体原因 */
+    /** 入口：API -> WEB -> M端，全部失败则抛出带原始响应的诊断信息 */
     suspend fun resolve(roomId: String): HuyaStreamResult = withContext(Dispatchers.IO) {
-        val apiResult = runCatching { resolveByApi(roomId) }
-        apiResult.getOrNull()?.let { return@withContext it }
+        val diag = mutableListOf<String>()
 
-        val webResult = runCatching { resolveByWeb(roomId) }
-        webResult.getOrNull()?.let { return@withContext it }
+        try {
+            resolveByApi(roomId, diag)?.let { return@withContext it }
+        } catch (e: HuyaOfflineException) {
+            throw e
+        } catch (e: Exception) {
+            diag.add("API异常:${e.message}")
+        }
 
-        val apiErr = apiResult.exceptionOrNull()?.message ?: "空结果"
-        val webErr = webResult.exceptionOrNull()?.message ?: "空结果"
-        throw RuntimeException("API:$apiErr | WEB:$webErr")
+        try {
+            resolveByWeb(roomId, diag)?.let { return@withContext it }
+        } catch (e: HuyaOfflineException) {
+            throw e
+        } catch (e: Exception) {
+            diag.add("WEB异常:${e.message}")
+        }
+
+        try {
+            resolveByMobileWeb(roomId, diag)?.let { return@withContext it }
+        } catch (e: Exception) {
+            diag.add("M端异常:${e.message}")
+        }
+
+        throw RuntimeException(diag.joinToString(" || ").ifEmpty { "全部返回空" })
     }
 
     // ================= API 端 =================
-    private suspend fun resolveByApi(roomId: String): HuyaStreamResult? {
+    private suspend fun resolveByApi(roomId: String, diag: MutableList<String>): HuyaStreamResult? {
         val body = HttpClient.get(API_URL + roomId, ua = HttpClient.MOBILE_UA)
         val root = JSONObject(body)
-        val data = root.optJSONObject("data") ?: return null
-        val b64 = data.optJSONObject("stream")?.optString("base64Stream").orEmpty()
-        if (b64.isEmpty()) return null
+        val data = root.optJSONObject("data")
+        if (data == null) {
+            diag.add("API无data:${body.take(100)}")
+            return null
+        }
+        val status = data.optString("liveStatus", "")
+        if (status.isNotEmpty() && !status.equals("ON", true)) {
+            throw HuyaOfflineException(data.optJSONObject("liveData")?.optString("nick").orEmpty())
+        }
+        val b64 = when (val sn = data.opt("stream")) {
+            is JSONObject -> sn.optString("base64Stream")
+            is String -> sn
+            else -> ""
+        }
+        if (b64.isEmpty()) {
+            diag.add("API无base64,status=$status,keys=${data.keys().asSequence().take(8).toList()}")
+            return null
+        }
         val payload = JSONObject(b64.decodeBase64())
-
-        val liveData = data.optJSONObject("liveData")
-        return buildFromPayload(
-            payload = payload,
-            fallbackNick = liveData?.optString("nick").orEmpty(),
-            fallbackAvatar = liveData?.optString("avatar18").orEmpty(),
-            fallbackFans = liveData?.optLong("fansCount") ?: 0L,
-            fallbackTitle = liveData?.optString("introduction").orEmpty(),
-            fallbackCover = liveData?.optString("screenshot").orEmpty(),
-            isLive = data.optString("liveStatus", "ON").equals("ON", true),
-            roomId = roomId,
-        )
+        val r = buildFromPayload(payload,
+            fallbackNick = data.optJSONObject("liveData")?.optString("nick").orEmpty(),
+            fallbackAvatar = data.optJSONObject("liveData")?.optString("avatar18").orEmpty(),
+            fallbackFans = data.optJSONObject("liveData")?.optLong("fansCount") ?: 0L,
+            fallbackTitle = data.optJSONObject("liveData")?.optString("introduction").orEmpty(),
+            fallbackCover = data.optJSONObject("liveData")?.optString("screenshot").orEmpty(),
+            isLive = true, roomId = roomId)
+        if (r == null) diag.add("API payload无线路,keys=${payload.keys().asSequence().take(8).toList()}")
+        return r
     }
 
-    // ================= Web 端兜底 =================
-    private suspend fun resolveByWeb(roomId: String): HuyaStreamResult? {
+    // ================= WEB 端 =================
+    private suspend fun resolveByWeb(roomId: String, diag: MutableList<String>): HuyaStreamResult? {
         val html = HttpClient.get(WEB_URL + roomId, ua = HttpClient.PC_UA)
-        val b64 = extractBase64(html) ?: return null
+        val b64 = extractBase64(html)
+        if (b64 == null) {
+            diag.add("WEB无base64,len=${html.length},head=${html.take(60)}")
+            return null
+        }
         val payload = JSONObject(b64.decodeBase64())
-        return buildFromPayload(
-            payload = payload,
-            fallbackNick = html.strOf("\"nick\"\\s*:\\s*\"([^\"]*)\""),
-            fallbackAvatar = html.strOf("\"avatar18\"\\s*:\\s*\"([^\"]*)\""),
-            fallbackFans = html.longOf("\"fansCount\"\\s*:\\s*(\\d+)"),
-            fallbackTitle = html.strOf("\"introduction\"\\s*:\\s*\"([^\"]*)\""),
-            fallbackCover = html.strOf("\"screenshot\"\\s*:\\s*\"([^\"]*)\""),
-            isLive = true,
-            roomId = roomId,
-        )
+        val r = buildFromPayload(payload, "", "", 0L, "", "", true, roomId)
+        if (r == null) diag.add("WEB payload无线路")
+        return r
     }
 
-    /** 多正则兜底提取 base64 流数据 */
+    // ================= 移动端页面兜底 =================
+    private suspend fun resolveByMobileWeb(roomId: String, diag: MutableList<String>): HuyaStreamResult? {
+        val html = HttpClient.get(M_WEB_URL + roomId, ua = HttpClient.MOBILE_UA)
+        val b64 = extractBase64(html)
+        if (b64 == null) {
+            diag.add("M端无base64,len=${html.length}")
+            return null
+        }
+        val payload = JSONObject(b64.decodeBase64())
+        return buildFromPayload(payload, "", "", 0L, "", "", true, roomId)
+    }
+
     private fun extractBase64(html: String): String? {
         val patterns = listOf(
             "\"stream\"\\s*:\\s*\"([A-Za-z0-9+/=\\n]+)\"",
@@ -93,7 +131,7 @@ object HuyaStreamResolver {
         return null
     }
 
-    // ================= 核心：兼容所有 JSON 结构 =================
+    // ================= 核心解析（deepFind 兼容所有结构） =================
     private fun buildFromPayload(
         payload: JSONObject,
         fallbackNick: String, fallbackAvatar: String, fallbackFans: Long,
@@ -103,7 +141,6 @@ object HuyaStreamResolver {
         val streamNameGlobal = deepFind(payload, "sStreamName") as? String ?: ""
         val lines = mutableListOf<HuyaLine>()
 
-        // 结构 A：gameStreamInfoList（PC/通用）
         val gsi = deepFind(payload, "gameStreamInfoList") as? JSONArray
         if (gsi != null) {
             for (i in 0 until gsi.length()) {
@@ -111,28 +148,12 @@ object HuyaStreamResolver {
                 val tag = o.optString("sCdnType").lowercase()
                 val name = o.optString("sStreamName").ifEmpty { streamNameGlobal }
                 val useHls = o.optInt("iIsHls") == 1 || o.optString("sHlsUrl").isNotEmpty()
-                lines += if (useHls) {
-                    HuyaLine(
-                        tag = tag,
-                        flvUrl = o.optString("sHlsUrl"),
-                        streamName = name,
-                        suffix = o.optString("sHlsUrlSuffix").ifEmpty { "m3u8" },
-                        antiCode = o.optString("sHlsAntiCode"),
-                        isHls = true,
-                    )
-                } else {
-                    HuyaLine(
-                        tag = tag,
-                        flvUrl = o.optString("sFlvUrl"),
-                        streamName = name,
-                        suffix = o.optString("sFlvUrlSuffix").ifEmpty { "flv" },
-                        antiCode = o.optString("sFlvAntiCode"),
-                        isHls = false,
-                    )
-                }
+                lines += if (useHls) HuyaLine(tag, o.optString("sHlsUrl"), name,
+                    o.optString("sHlsUrlSuffix").ifEmpty { "m3u8" }, o.optString("sHlsAntiCode"), true)
+                else HuyaLine(tag, o.optString("sFlvUrl"), name,
+                    o.optString("sFlvUrlSuffix").ifEmpty { "flv" }, o.optString("sFlvAntiCode"), false)
             }
         } else {
-            // 结构 B：vMultiLine（移动端）
             val vml = deepFind(payload, "vMultiLine") as? JSONArray
             if (vml != null) {
                 for (i in 0 until vml.length()) {
@@ -156,7 +177,6 @@ object HuyaStreamResolver {
         }
         if (validLines.isEmpty()) return null
 
-        // 清晰度
         val qualities = mutableListOf(StreamQuality(0, "原画"))
         val vbr = deepFind(payload, "vBitRate") as? JSONArray
         if (vbr != null) {
@@ -164,49 +184,29 @@ object HuyaStreamResolver {
                 val o = vbr.optJSONObject(i) ?: continue
                 val rate = o.optInt("iBitRate")
                 if (rate == 0) continue
-                qualities += StreamQuality(
-                    rate,
-                    o.optString("sBitRateDisplayName")
-                        .ifEmpty { QUALITY_NAMES[rate] ?: "档位$rate" }
-                )
+                qualities += StreamQuality(rate,
+                    o.optString("sBitRateDisplayName").ifEmpty { QUALITY_NAMES[rate] ?: "档位$rate" })
             }
         }
 
-        // 房间 / 主播信息
         val gli = deepFind(payload, "gameLiveInfo") as? JSONObject
         val pi = deepFind(payload, "playerInfo") as? JSONObject
         val ayyuid = gli?.optLong("lYyid") ?: gli?.optLong("lPresenterUid") ?: 0L
         val topSid = gli?.optLong("lChannelId") ?: gli?.optLong("lTid") ?: 0L
         val subSid = gli?.optLong("lSubChannelId") ?: gli?.optLong("lSid") ?: 0L
-        val nick = pi?.optString("sNick").orEmpty()
-            .ifEmpty { gli?.optString("sNick").orEmpty() }
-            .ifEmpty { fallbackNick }
+        val nick = pi?.optString("sNick").orEmpty().ifEmpty { fallbackNick }
         val avatar = pi?.optString("sAvatar18").orEmpty().ifEmpty { fallbackAvatar }
         val fans = pi?.optLong("lFansCount") ?: fallbackFans
-        val title = gli?.optString("sRoomName").orEmpty()
-            .ifEmpty { gli?.optString("sIntroduction").orEmpty() }
-            .ifEmpty { fallbackTitle }
+        val title = gli?.optString("sRoomName").orEmpty().ifEmpty { fallbackTitle }
         val cover = gli?.optString("sScreenshot").orEmpty().ifEmpty { fallbackCover }
         val startTime = gli?.optLong("lLiveStartTime") ?: 0L
-        val heat = gli?.optLong("lTotalCount") ?: gli?.optLong("lAttendeeCount") ?: 0L
+        val heat = gli?.optLong("lTotalCount") ?: 0L
 
-        return HuyaStreamResult(
-            roomId = roomId,
-            ayyuid = ayyuid,
-            topSid = topSid,
-            subSid = subSid,
-            title = title,
-            cover = cover,
-            heat = heat,
-            startTime = startTime,
-            isLive = isLive,
-            streamer = StreamerInfo(ayyuid, nick, avatar, fans, isLive),
-            qualities = qualities,
-            lines = validLines.sortedBy { LINE_PRIORITY[it.tag] ?: 99 },
-        )
+        return HuyaStreamResult(roomId, ayyuid, topSid, subSid, title, cover, heat, startTime,
+            isLive, StreamerInfo(ayyuid, nick, avatar, fans, isLive), qualities,
+            validLines.sortedBy { LINE_PRIORITY[it.tag] ?: 99 })
     }
 
-    /** 深度递归搜索：无论虎牙把字段藏在哪一层都能挖出来 */
     private fun deepFind(node: Any?, key: String): Any? {
         when (node) {
             is JSONObject -> {
@@ -232,24 +232,18 @@ object HuyaStreamResolver {
         val p = mutableMapOf<String, String>()
         for (kv in antiCode.split("&")) {
             val i = kv.indexOf('=')
-            if (i > 0) {
-                p[kv.substring(0, i)] = kv.substring(i + 1).urlDecode()
-            }
+            if (i > 0) p[kv.substring(0, i)] = kv.substring(i + 1).urlDecode()
         }
         val ss = (p["fm"] ?: "").urlDecode().substringBefore("_")
         val wsTime = p["wsTime"] ?: ""
         val ctype = p["ctype"] ?: "web"
         val t = p["t"] ?: "100"
         val seqid = System.currentTimeMillis() + uid
-
         val ss2 = "$seqid|$ctype|$t".md5()
         val ss3 = "${ss}_${wsTime}_${streamName}_${seqid}".md5()
         p["wsSecret"] = "${ss}_${ss2}_${ss3}".md5()
         p["seqid"] = seqid.toString()
-
-        return p.entries.joinToString("&") { (k, v) ->
-            "$k=" + URLEncoder.encode(v, "UTF-8")
-        }
+        return p.entries.joinToString("&") { (k, v) -> "$k=" + URLEncoder.encode(v, "UTF-8") }
     }
 
     fun buildPlayUrl(line: HuyaLine, quality: StreamQuality, uid: Long): String {
@@ -257,9 +251,4 @@ object HuyaStreamResolver {
         val ratio = if (quality.bitRate == 0) "" else "&ratio=${quality.bitRate}"
         return "${line.flvUrl}/${line.streamName}.${line.suffix}?$code$ratio"
     }
-
-    private fun String.longOf(regex: String): Long =
-        Regex(regex).find(this)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-    private fun String.strOf(regex: String): String =
-        Regex(regex).find(this)?.groupValues?.get(1) ?: ""
 }
