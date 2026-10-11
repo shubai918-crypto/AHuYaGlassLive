@@ -7,6 +7,7 @@
         android:allowBackup="true"
         android:label="AHuYaGlassLive"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.AHuYaGlassLive">
         <activity
             android:name=".MainActivity"
