@@ -14,7 +14,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
-/** 房间存在但主播未开播 */
 class HuyaOfflineException(val nick: String) : Exception("主播未开播")
 
 object HuyaStreamResolver {
@@ -29,31 +28,21 @@ object HuyaStreamResolver {
         2000 to "蓝光2M", 1000 to "超清", 500 to "流畅",
     )
 
-    /** 入口：API -> WEB -> M端，全部失败则抛出带原始响应的诊断信息 */
     suspend fun resolve(roomId: String): HuyaStreamResult = withContext(Dispatchers.IO) {
         val diag = mutableListOf<String>()
-
         try {
             resolveByApi(roomId, diag)?.let { return@withContext it }
-        } catch (e: HuyaOfflineException) {
-            throw e
-        } catch (e: Exception) {
-            diag.add("API异常:${e.message}")
-        }
+        } catch (e: HuyaOfflineException) { throw e }
+        catch (e: Exception) { diag.add("API异常:${e.message}") }
 
         try {
             resolveByWeb(roomId, diag)?.let { return@withContext it }
-        } catch (e: HuyaOfflineException) {
-            throw e
-        } catch (e: Exception) {
-            diag.add("WEB异常:${e.message}")
-        }
+        } catch (e: HuyaOfflineException) { throw e }
+        catch (e: Exception) { diag.add("WEB异常:${e.message}") }
 
         try {
             resolveByMobileWeb(roomId, diag)?.let { return@withContext it }
-        } catch (e: Exception) {
-            diag.add("M端异常:${e.message}")
-        }
+        } catch (e: Exception) { diag.add("M端异常:${e.message}") }
 
         throw RuntimeException(diag.joinToString(" || ").ifEmpty { "全部返回空" })
     }
@@ -61,61 +50,89 @@ object HuyaStreamResolver {
     // ================= API 端 =================
     private suspend fun resolveByApi(roomId: String, diag: MutableList<String>): HuyaStreamResult? {
         val body = HttpClient.get(API_URL + roomId, ua = HttpClient.MOBILE_UA)
-        val root = JSONObject(body)
-        val data = root.optJSONObject("data")
-        if (data == null) {
-            diag.add("API无data:${body.take(100)}")
-            return null
-        }
-        val status = data.optString("liveStatus", "")
+        val data = runCatching { JSONObject(body) }.getOrNull()?.optJSONObject("data")
+        val status = data?.optString("liveStatus", "").orEmpty()
         if (status.isNotEmpty() && !status.equals("ON", true)) {
-            throw HuyaOfflineException(data.optJSONObject("liveData")?.optString("nick").orEmpty())
+            throw HuyaOfflineException(data?.optJSONObject("liveData")?.optString("nick").orEmpty())
         }
-        val b64 = when (val sn = data.opt("stream")) {
-            is JSONObject -> sn.optString("base64Stream")
-            is String -> sn
-            else -> ""
-        }
-        if (b64.isEmpty()) {
-            diag.add("API无base64,status=$status,keys=${data.keys().asSequence().take(8).toList()}")
+        val liveData = data?.optJSONObject("liveData")
+        var r = buildFromText(body,
+            fallbackNick = liveData?.optString("nick").orEmpty(),
+            fallbackAvatar = liveData?.optString("avatar18").orEmpty(),
+            fallbackFans = liveData?.optLong("fansCount") ?: 0L,
+            fallbackTitle = liveData?.optString("introduction").orEmpty(),
+            fallbackCover = liveData?.optString("screenshot").orEmpty(),
+            isLive = true, roomId = roomId)
+        if (r == null) {
+            diag.add("API无线路,status=$status,keys=${data?.keys()?.asSequence()?.take(8)?.toList()}")
             return null
         }
-        val payload = JSONObject(b64.decodeBase64())
-        val r = buildFromPayload(payload,
-            fallbackNick = data.optJSONObject("liveData")?.optString("nick").orEmpty(),
-            fallbackAvatar = data.optJSONObject("liveData")?.optString("avatar18").orEmpty(),
-            fallbackFans = data.optJSONObject("liveData")?.optLong("fansCount") ?: 0L,
-            fallbackTitle = data.optJSONObject("liveData")?.optString("introduction").orEmpty(),
-            fallbackCover = data.optJSONObject("liveData")?.optString("screenshot").orEmpty(),
-            isLive = true, roomId = roomId)
-        if (r == null) diag.add("API payload无线路,keys=${payload.keys().asSequence().take(8).toList()}")
+        // ⭐ 用 chTopId / subChId 兜底弹幕订阅 ID
+        if (r.topSid == 0L || r.subSid == 0L) {
+            r = r.copy(
+                topSid = if (r.topSid != 0L) r.topSid else data?.optLong("chTopId") ?: 0L,
+                subSid = if (r.subSid != 0L) r.subSid else data?.optLong("subChId") ?: 0L,
+            )
+        }
         return r
     }
 
-    // ================= WEB 端 =================
+    // ================= WEB / M端 =================
     private suspend fun resolveByWeb(roomId: String, diag: MutableList<String>): HuyaStreamResult? {
         val html = HttpClient.get(WEB_URL + roomId, ua = HttpClient.PC_UA)
-        val b64 = extractBase64(html)
-        if (b64 == null) {
-            diag.add("WEB无base64,len=${html.length},head=${html.take(60)}")
-            return null
-        }
-        val payload = JSONObject(b64.decodeBase64())
-        val r = buildFromPayload(payload, "", "", 0L, "", "", true, roomId)
-        if (r == null) diag.add("WEB payload无线路")
+        val r = buildFromText(html, "", "", 0L, "", "", true, roomId)
+        if (r == null) diag.add("WEB无线路,len=${html.length}")
         return r
     }
 
-    // ================= 移动端页面兜底 =================
     private suspend fun resolveByMobileWeb(roomId: String, diag: MutableList<String>): HuyaStreamResult? {
         val html = HttpClient.get(M_WEB_URL + roomId, ua = HttpClient.MOBILE_UA)
-        val b64 = extractBase64(html)
-        if (b64 == null) {
-            diag.add("M端无base64,len=${html.length}")
-            return null
+        val r = buildFromText(html, "", "", 0L, "", "", true, roomId)
+        if (r == null) diag.add("M端无线路,len=${html.length}")
+        return r
+    }
+
+    // ================= 三路提取器 =================
+    private fun buildFromText(
+        text: String,
+        fallbackNick: String, fallbackAvatar: String, fallbackFans: Long,
+        fallbackTitle: String, fallbackCover: String,
+        isLive: Boolean, roomId: String,
+    ): HuyaStreamResult? {
+        // 路0：JSON 任意深度挖 base64Stream
+        runCatching { JSONObject(text) }.getOrNull()?.let { root ->
+            (deepFind(root, "base64Stream") as? String)?.let { b64 ->
+                if (b64.isNotEmpty()) {
+                    runCatching { JSONObject(b64.decodeBase64()) }.getOrNull()?.let { p ->
+                        buildFromPayload(p, fallbackNick, fallbackAvatar, fallbackFans,
+                            fallbackTitle, fallbackCover, isLive, roomId)?.let { return it }
+                    }
+                }
+            }
         }
-        val payload = JSONObject(b64.decodeBase64())
-        return buildFromPayload(payload, "", "", 0L, "", "", true, roomId)
+        // 路1：正则抓 base64（老版网页）
+        extractBase64(text)?.let { b64 ->
+            runCatching { JSONObject(b64.decodeBase64()) }.getOrNull()?.let { p ->
+                buildFromPayload(p, fallbackNick, fallbackAvatar, fallbackFans,
+                    fallbackTitle, fallbackCover, isLive, roomId)?.let { return it }
+            }
+        }
+        // 路2：括号配对抠明文 JSON（新版网页 HNF_GLOBAL_INIT）
+        val gsi = extractJsonArray(text, "gameStreamInfoList")
+        val vml = extractJsonArray(text, "vMultiLine")
+        if (gsi == null && vml == null) return null
+        val synthetic = JSONObject()
+        gsi?.let { synthetic.put("gameStreamInfoList", it) }
+        vml?.let { synthetic.put("vMultiLine", it) }
+        extractJsonArray(text, "vBitRate")?.let { synthetic.put("vBitRate", it) }
+        extractJsonObject(text, "gameLiveInfo")?.let { synthetic.put("gameLiveInfo", it) }
+        extractJsonObject(text, "playerInfo")?.let { synthetic.put("playerInfo", it) }
+        if (vml != null && gsi == null) {
+            Regex("\"sStreamName\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.get(1)
+                ?.let { synthetic.put("sStreamName", it) }
+        }
+        return buildFromPayload(synthetic, fallbackNick, fallbackAvatar, fallbackFans,
+            fallbackTitle, fallbackCover, isLive, roomId)
     }
 
     private fun extractBase64(html: String): String? {
@@ -131,7 +148,51 @@ object HuyaStreamResolver {
         return null
     }
 
-    // ================= 核心解析（deepFind 兼容所有结构） =================
+    /** 括号配对扫描：从明文里抠出 key 对应的 [ ... ] */
+    private fun extractJsonArray(text: String, key: String): JSONArray? =
+        extractBracket(text, key, '[', ']')?.let { runCatching { JSONArray(it) }.getOrNull() }
+
+    /** 括号配对扫描：从明文里抠出 key 对应的 { ... } */
+    private fun extractJsonObject(text: String, key: String): JSONObject? =
+        extractBracket(text, key, '{', '}')?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    private fun extractBracket(text: String, key: String, open: Char, close: Char): String? {
+        val k = "\"$key\""
+        var from = 0
+        while (true) {
+            val idx = text.indexOf(k, from)
+            if (idx < 0) return null
+            val start = text.indexOf(open, idx + k.length)
+            if (start < 0) return null
+            if (text.substring(idx + k.length, start).trim() != ":") {
+                from = idx + k.length
+                continue
+            }
+            var depth = 0
+            var i = start
+            while (i < text.length) {
+                val c = text[i]
+                when {
+                    c == '"' -> {
+                        i++
+                        while (i < text.length && text[i] != '"') {
+                            if (text[i] == '\\') i++
+                            i++
+                        }
+                    }
+                    c == open -> depth++
+                    c == close -> {
+                        depth--
+                        if (depth == 0) return text.substring(start, i + 1)
+                    }
+                }
+                i++
+            }
+            return null
+        }
+    }
+
+    // ================= 核心解析 =================
     private fun buildFromPayload(
         payload: JSONObject,
         fallbackNick: String, fallbackAvatar: String, fallbackFans: Long,
