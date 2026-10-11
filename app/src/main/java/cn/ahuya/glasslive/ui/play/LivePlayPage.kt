@@ -1,5 +1,6 @@
 package cn.ahuya.glasslive.ui.play
 
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -11,11 +12,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,9 +24,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
-import cn.ahuya.glasslive.ui.glass.GlassBottomBar // ⭐ 新增 Import
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import cn.ahuya.glasslive.ui.glass.GlassBottomBar
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 fun LivePlayPage(
@@ -47,9 +48,10 @@ fun LivePlayPage(
     ) {
         when (val s = state) {
             PlayState.Loading -> CenterText("正在连接虎牙直播间…")
-            is PlayState.Offline -> CenterText(s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在")
+            is PlayState.Offline -> CenterText(
+                s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在"
+            )
             is PlayState.Error -> CenterText(s.msg)
-
             is PlayState.Playing -> {
                 HuyaPlayerView(
                     url = s.url,
@@ -61,7 +63,6 @@ fun LivePlayPage(
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                // 防黑屏遮罩
                 AnimatedVisibility(
                     visible = !videoReady,
                     enter = fadeIn(),
@@ -75,11 +76,14 @@ fun LivePlayPage(
                     }
                 }
 
-                // ⭐ 注入灵魂：液态玻璃悬浮底栏
-                GlassBottomBar(
-                    backdrop = backdrop,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
+                // ⭐ 液态玻璃底栏仅在 Android 12+(API 31) 启用（blur/RenderEffect 依赖它）
+                //    老设备先不渲染玻璃栏，保证播放不崩，便于定位
+                if (Build.VERSION.SDK_INT >= 31) {
+                    GlassBottomBar(
+                        backdrop = backdrop,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
             }
         }
     }
