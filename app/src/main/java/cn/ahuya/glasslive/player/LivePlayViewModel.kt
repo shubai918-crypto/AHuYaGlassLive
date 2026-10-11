@@ -22,11 +22,12 @@ class LivePlayViewModel : ViewModel() {
     private var currentLineIndex = 0
     private var currentQualityIndex = 0
     private var retryCount = 0
+    private var lastError = ""
 
     var danmakuClient: HuyaDanmakuClient? = null
         private set
 
-fun enterRoom(roomId: String) {
+    fun enterRoom(roomId: String) {
         viewModelScope.launch {
             _uiState.value = PlayState.Loading
             try {
@@ -39,10 +40,10 @@ fun enterRoom(roomId: String) {
                 currentLineIndex = 0
                 currentQualityIndex = 0
                 retryCount = 0
-                runCatching { connectDanmaku(result) } // 弹幕挂了也不影响播放
+                runCatching { connectDanmaku(result) }
                 playCurrent()
             } catch (e: HuyaOfflineException) {
-                _uiState.value = PlayState.Error("主播未开播：房间存在但当前不在直播，请换一个正在开播的房间号")
+                _uiState.value = PlayState.Error("主播未开播：房间存在但当前不在直播")
             } catch (t: Throwable) {
                 _uiState.value = PlayState.Error("解析失败: ${t.message}")
             }
@@ -63,13 +64,18 @@ fun enterRoom(roomId: String) {
         _uiState.value = PlayState.Playing(url, line, quality, res)
     }
 
-    fun onPlayerError() {
+    /** ⭐ 接收播放器真实错误，最终失败时显示出来 */
+    fun onPlayerError(errInfo: String) {
+        lastError = errInfo
         val res = currentResult ?: return
         retryCount++
         if (currentQualityIndex < res.qualities.size - 1) { currentQualityIndex++; playCurrent(); return }
         if (currentLineIndex < res.lines.size - 1) { currentLineIndex++; currentQualityIndex = 0; playCurrent(); return }
-        if (retryCount < 3) enterRoom(res.roomId)
-        else _uiState.value = PlayState.Error("所有线路均不可用")
+        if (retryCount < 3) { enterRoom(res.roomId); return }
+        val line = res.lines.getOrNull(currentLineIndex)
+        _uiState.value = PlayState.Error(
+            "所有线路均不可用\n最后错误: $lastError\n末次线路: ${line?.tag}/${if (line?.isHls == true) "HLS" else "FLV"}"
+        )
     }
 
     fun switchQuality(index: Int) { currentQualityIndex = index; playCurrent() }
