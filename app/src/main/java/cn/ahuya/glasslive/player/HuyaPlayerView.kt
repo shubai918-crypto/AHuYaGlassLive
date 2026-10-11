@@ -1,5 +1,6 @@
 package cn.ahuya.glasslive.player
 
+import android.view.LayoutInflater
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -15,6 +16,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import cn.ahuya.glasslive.R
 
 @Composable
 fun HuyaPlayerView(
@@ -52,8 +54,8 @@ fun HuyaPlayerView(
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            PlayerView(ctx).apply {
-                useController = false
+            // ⭐  inflate 出 texture_view 版本的 PlayerView
+            (LayoutInflater.from(ctx).inflate(R.layout.player_view, null) as PlayerView).apply {
                 this.player = player
             }
         },
