@@ -45,10 +45,10 @@ fun LivePlayPage(
             is PlayState.Playing -> {
                 HuyaPlayerView(
                     url = s.url,
-                    onError = {
-                        videoReady = false
-                        viewModel.onPlayerError()
-                    },
+                    onError = { err ->
+    videoReady = false
+    viewModel.onPlayerError(err)
+},
                     onFirstFrame = { videoReady = true },
                     modifier = Modifier.fillMaxSize(),
                 )
