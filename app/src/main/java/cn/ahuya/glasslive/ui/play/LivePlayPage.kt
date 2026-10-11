@@ -1,6 +1,5 @@
 package cn.ahuya.glasslive.ui.play
 
-import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -24,9 +23,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
-import cn.ahuya.glasslive.ui.glass.GlassBottomBar
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 fun LivePlayPage(
@@ -38,14 +34,8 @@ fun LivePlayPage(
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
-    val backdrop = rememberLayerBackdrop()
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .layerBackdrop(backdrop)
-            .background(Color.Black)
-    ) {
+    // ⭐ 诊断期：移除 layerBackdrop / 玻璃栏，纯播放器，最小变量
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
             PlayState.Loading -> CenterText("正在连接虎牙直播间…")
             is PlayState.Offline -> CenterText(
@@ -62,7 +52,6 @@ fun LivePlayPage(
                     onFirstFrame = { videoReady = true },
                     modifier = Modifier.fillMaxSize(),
                 )
-
                 AnimatedVisibility(
                     visible = !videoReady,
                     enter = fadeIn(),
@@ -75,15 +64,7 @@ fun LivePlayPage(
                         CircularProgressIndicator(color = Color(0xFF00D2FF))
                     }
                 }
-
-                // ⭐ 液态玻璃底栏仅在 Android 12+(API 31) 启用（blur/RenderEffect 依赖它）
-                //    老设备先不渲染玻璃栏，保证播放不崩，便于定位
-                if (Build.VERSION.SDK_INT >= 31) {
-                    GlassBottomBar(
-                        backdrop = backdrop,
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    )
-                }
+                // 诊断期：暂不放任何底栏
             }
         }
     }
