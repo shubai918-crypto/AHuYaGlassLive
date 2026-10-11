@@ -20,6 +20,7 @@ class LivePlayViewModel : ViewModel() {
     private var currentResult: HuyaStreamResult? = null
     private var currentLineIndex = 0
     private var currentQualityIndex = 0
+    private var retryCount = 0
 
     var danmakuClient: HuyaDanmakuClient? = null
         private set
@@ -27,46 +28,67 @@ class LivePlayViewModel : ViewModel() {
     fun enterRoom(roomId: String) {
         viewModelScope.launch {
             _uiState.value = PlayState.Loading
-            val result = HuyaStreamResolver.resolve(roomId)
-            if (result == null || !result.isLive) {
-                _uiState.value = PlayState.Offline(result)
-                return@launch
+            try {
+                val result = HuyaStreamResolver.resolve(roomId)
+                if (!result.isLive || result.lines.isEmpty()) {
+                    _uiState.value = PlayState.Offline(result)
+                    return@launch
+                }
+                currentResult = result
+                currentLineIndex = 0
+                currentQualityIndex = 0
+                retryCount = 0
+                connectDanmaku(result)
+                playCurrent()
+            } catch (e: Exception) {
+                _uiState.value = PlayState.Error("解析失败: ${e.message}")
             }
-            currentResult = result
-            currentLineIndex = 0
-            currentQualityIndex = 0
-
-            danmakuClient = HuyaDanmakuClient(result.ayyuid, result.topSid, result.subSid)
-            danmakuClient?.connect()
-
-            playCurrent()
         }
+    }
+
+    private fun connectDanmaku(result: HuyaStreamResult) {
+        danmakuClient?.disconnect()
+        danmakuClient = HuyaDanmakuClient(result.ayyuid, result.topSid, result.subSid)
+            .also { it.connect() }
     }
 
     private fun playCurrent() {
         val res = currentResult ?: return
-        if (res.lines.isEmpty() || res.qualities.isEmpty()) {
-            _uiState.value = PlayState.Error("无可用线路或清晰度")
-            return
-        }
-        val line = res.lines[currentLineIndex]
-        val quality = res.qualities[currentQualityIndex]
+        val line = res.lines.getOrNull(currentLineIndex) ?: res.lines.first()
+        val quality = res.qualities.getOrNull(currentQualityIndex) ?: res.qualities.first()
         val url = HuyaStreamResolver.buildPlayUrl(line, quality, res.ayyuid)
         _uiState.value = PlayState.Playing(url, line, quality, res)
     }
 
-    /** 播放器报错时调用：先降清晰度，再换线路 */
+    /** 播放器报错：先降清晰度 -> 再换线路 -> 最后重新解析 */
     fun onPlayerError() {
         val res = currentResult ?: return
+        retryCount++
         if (currentQualityIndex < res.qualities.size - 1) {
             currentQualityIndex++
-        } else if (currentLineIndex < res.lines.size - 1) {
-            currentLineIndex++
-            currentQualityIndex = 0
-        } else {
-            _uiState.value = PlayState.Error("所有线路均不可用")
+            playCurrent()
             return
         }
+        if (currentLineIndex < res.lines.size - 1) {
+            currentLineIndex++
+            currentQualityIndex = 0
+            playCurrent()
+            return
+        }
+        if (retryCount < 3) {
+            enterRoom(res.roomId)
+        } else {
+            _uiState.value = PlayState.Error("所有线路均不可用")
+        }
+    }
+
+    fun switchQuality(index: Int) {
+        currentQualityIndex = index
+        playCurrent()
+    }
+
+    fun switchLine(index: Int) {
+        currentLineIndex = index
         playCurrent()
     }
 
