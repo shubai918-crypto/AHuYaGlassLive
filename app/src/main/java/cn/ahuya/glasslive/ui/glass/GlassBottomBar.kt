@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
+// ⭐ 必须显式 import 这两个特效扩展函数
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 
@@ -57,14 +58,18 @@ fun GlassBottomBar(
         )
 
         // 右侧：单胶囊图标组
+        val rightShape = RoundedCornerShape(24.dp)
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(24.dp))
-                .drawBackdrop(backdrop) {
-                    blur(24.dp)         // 核心：实时高斯模糊穿透视频
-                    vibrancy(0.6f)      // 色彩增强：让背后的视频颜色透过来
+                .clip(rightShape)
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = rightShape // ⭐ 2.0.1 必填参数
+                ) {
+                    blur(24f)      // ⭐ 改为 Float
+                    vibrancy()     // ⭐ 无参调用
                 }
-                .background(Color.White.copy(alpha = 0.05f)) // 微弱底色增强玻璃质感
+                .background(Color.White.copy(alpha = 0.05f))
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp)
         ) {
@@ -81,26 +86,27 @@ private fun DanmakuInputPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 🍮 果冻物理引擎
     val scale = remember { Animatable(1f) }
+    val pillShape = RoundedCornerShape(24.dp)
     
     Row(
         modifier = modifier
             .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .drawBackdrop(backdrop) {
-                blur(24.dp)
-                vibrancy(0.8f)
+            .clip(pillShape)
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = pillShape // ⭐ 2.0.1 必填参数
+            ) {
+                blur(24f)
+                vibrancy()
             }
             .background(Color.White.copy(alpha = 0.08f))
             .scale(scale.value)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
-                        // 按下：瞬间缩小
                         scale.animateTo(0.92f, spring(stiffness = Spring.StiffnessMedium))
                         tryAwaitRelease()
-                        // 松开：Q弹过冲放大，然后回弹
                         scale.animateTo(1.06f, spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioMediumBouncy))
                         scale.animateTo(1f, spring(stiffness = Spring.StiffnessMedium))
                         onClick()
