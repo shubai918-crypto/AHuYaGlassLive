@@ -10,6 +10,7 @@ import cn.ahuya.glasslive.data.huya.model.StreamQuality
 import cn.ahuya.glasslive.data.huya.model.StreamerInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
@@ -18,6 +19,7 @@ object HuyaStreamResolver {
     private const val API_URL = "https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid="
     private const val WEB_URL = "https://www.huya.com/"
 
+    /** 线路优先级 al > hs > tx（对齐 Dart 版） */
     private val LINE_PRIORITY = mapOf("al" to 0, "hs" to 1, "tx" to 2)
 
     private val QUALITY_NAMES = mapOf(
@@ -25,132 +27,215 @@ object HuyaStreamResolver {
         2000 to "蓝光2M", 1000 to "超清", 500 to "流畅",
     )
 
-    suspend fun resolve(roomId: String): HuyaStreamResult? =
-        withContext(Dispatchers.IO) {
-            try {
-                resolveByApi(roomId) ?: resolveByWeb(roomId)
-            } catch (_: Exception) { null }
-        }
+    /** 入口：API 优先，Web 兜底；都失败则抛出具体原因 */
+    suspend fun resolve(roomId: String): HuyaStreamResult = withContext(Dispatchers.IO) {
+        val apiResult = runCatching { resolveByApi(roomId) }
+        apiResult.getOrNull()?.let { return@withContext it }
 
+        val webResult = runCatching { resolveByWeb(roomId) }
+        webResult.getOrNull()?.let { return@withContext it }
+
+        val apiErr = apiResult.exceptionOrNull()?.message ?: "空结果"
+        val webErr = webResult.exceptionOrNull()?.message ?: "空结果"
+        throw RuntimeException("API:$apiErr | WEB:$webErr")
+    }
+
+    // ================= API 端 =================
     private suspend fun resolveByApi(roomId: String): HuyaStreamResult? {
-        return try {
-            val root = JSONObject(HttpClient.get(API_URL + roomId, ua = HttpClient.MOBILE_UA))
-            val data = root.optJSONObject("data") ?: return null
-            val liveData = data.optJSONObject("liveData")
-            val b64 = data.optJSONObject("stream")?.optString("base64Stream").orEmpty()
-            if (b64.isEmpty()) return null
+        val body = HttpClient.get(API_URL + roomId, ua = HttpClient.MOBILE_UA)
+        val root = JSONObject(body)
+        val data = root.optJSONObject("data") ?: return null
+        val b64 = data.optJSONObject("stream")?.optString("base64Stream").orEmpty()
+        if (b64.isEmpty()) return null
+        val payload = JSONObject(b64.decodeBase64())
 
-            val stream = extractStreamNode(JSONObject(b64.decodeBase64())) ?: return null
-            buildResult(
-                roomId = roomId, stream = stream,
-                uid = liveData?.optLong("yyid") ?: 0L,
-                topSid = liveData?.optLong("lTid") ?: liveData?.optLong("tid") ?: 0L,
-                subSid = liveData?.optLong("lSid") ?: liveData?.optLong("sid") ?: 0L,
-                nickname = liveData?.optString("nick").orEmpty(),
-                avatar = liveData?.optString("avatar18").orEmpty(),
-                fans = liveData?.optLong("fansCount") ?: 0L,
-                title = liveData?.optString("introduction").orEmpty(),
-                cover = liveData?.optString("screenshot").orEmpty(),
-                heat = liveData?.optLong("totalCount") ?: 0L,
-                startTime = liveData?.optLong("startTime") ?: 0L,
-                isLive = data.optString("liveStatus", "ON").equals("ON", true),
-            )
-        } catch (_: Exception) { null }
+        val liveData = data.optJSONObject("liveData")
+        return buildFromPayload(
+            payload = payload,
+            fallbackNick = liveData?.optString("nick").orEmpty(),
+            fallbackAvatar = liveData?.optString("avatar18").orEmpty(),
+            fallbackFans = liveData?.optLong("fansCount") ?: 0L,
+            fallbackTitle = liveData?.optString("introduction").orEmpty(),
+            fallbackCover = liveData?.optString("screenshot").orEmpty(),
+            isLive = data.optString("liveStatus", "ON").equals("ON", true),
+            roomId = roomId,
+        )
     }
 
+    // ================= Web 端兜底 =================
     private suspend fun resolveByWeb(roomId: String): HuyaStreamResult? {
-        return try {
-            val html = HttpClient.get(WEB_URL + roomId)
-            val b64 = Regex("\"stream\"\\s*:\\s*\"([A-Za-z0-9+/=\\n]+)\"")
-                .find(html)?.groupValues?.get(1) ?: return null
-            val stream = extractStreamNode(JSONObject(b64.decodeBase64())) ?: return null
-            buildResult(
-                roomId = roomId, stream = stream,
-                uid = html.longOf("\"yyid\"\\s*:\\s*(\\d+)"),
-                topSid = html.longOf("\"lTid\"\\s*:\\s*(\\d+)"),
-                subSid = html.longOf("\"lSid\"\\s*:\\s*(\\d+)"),
-                nickname = html.strOf("\"nick\"\\s*:\\s*\"([^\"]*)\""),
-                avatar = html.strOf("\"avatar18\"\\s*:\\s*\"([^\"]*)\""),
-                fans = html.longOf("\"fansCount\"\\s*:\\s*(\\d+)"),
-                title = html.strOf("\"introduction\"\\s*:\\s*\"([^\"]*)\""),
-                cover = html.strOf("\"screenshot\"\\s*:\\s*\"([^\"]*)\""),
-                heat = html.longOf("\"totalCount\"\\s*:\\s*\"?(\\d+)"),
-                startTime = html.longOf("\"startTime\"\\s*:\\s*(\\d+)"),
-                isLive = true,
-            )
-        } catch (_: Exception) { null }
+        val html = HttpClient.get(WEB_URL + roomId, ua = HttpClient.PC_UA)
+        val b64 = extractBase64(html) ?: return null
+        val payload = JSONObject(b64.decodeBase64())
+        return buildFromPayload(
+            payload = payload,
+            fallbackNick = html.strOf("\"nick\"\\s*:\\s*\"([^\"]*)\""),
+            fallbackAvatar = html.strOf("\"avatar18\"\\s*:\\s*\"([^\"]*)\""),
+            fallbackFans = html.longOf("\"fansCount\"\\s*:\\s*(\\d+)"),
+            fallbackTitle = html.strOf("\"introduction\"\\s*:\\s*\"([^\"]*)\""),
+            fallbackCover = html.strOf("\"screenshot\"\\s*:\\s*\"([^\"]*)\""),
+            isLive = true,
+            roomId = roomId,
+        )
     }
 
-    private fun extractStreamNode(root: JSONObject): JSONObject? {
-        root.optJSONObject("stream")?.let { return it }
-        val arr = root.optJSONArray("data") ?: return null
-        for (i in 0 until arr.length()) {
-            arr.optJSONObject(i)?.optJSONObject("stream")?.let { return it }
+    /** 多正则兜底提取 base64 流数据 */
+    private fun extractBase64(html: String): String? {
+        val patterns = listOf(
+            "\"stream\"\\s*:\\s*\"([A-Za-z0-9+/=\\n]+)\"",
+            "TT_STREAM_DATA\\s*=\\s*\"([A-Za-z0-9+/=\\n]+)\"",
+            "\"base64Stream\"\\s*:\\s*\"([A-Za-z0-9+/=\\n]+)\"",
+        )
+        for (p in patterns) {
+            val m = Regex(p).find(html)?.groupValues?.get(1)
+            if (!m.isNullOrEmpty()) return m.replace(Regex("\\s"), "")
         }
         return null
     }
 
-    private fun buildResult(
-        roomId: String, stream: JSONObject,
-        uid: Long, topSid: Long, subSid: Long,
-        nickname: String, avatar: String, fans: Long,
-        title: String, cover: String, heat: Long,
-        startTime: Long, isLive: Boolean,
+    // ================= 核心：兼容所有 JSON 结构 =================
+    private fun buildFromPayload(
+        payload: JSONObject,
+        fallbackNick: String, fallbackAvatar: String, fallbackFans: Long,
+        fallbackTitle: String, fallbackCover: String,
+        isLive: Boolean, roomId: String,
     ): HuyaStreamResult? {
-        val streamName = stream.optString("sStreamName")
-        val multi = stream.optJSONArray("vMultiLine")
-        if (streamName.isEmpty() || multi == null) return null
-
+        val streamNameGlobal = deepFind(payload, "sStreamName") as? String ?: ""
         val lines = mutableListOf<HuyaLine>()
-        for (i in 0 until multi.length()) {
-            val o = multi.optJSONObject(i) ?: continue
-            val url = o.optString("sFlvUrl")
-            lines += HuyaLine(
-                tag = url.substringAfter("://").substringBefore("."),
-                flvUrl = url,
-                streamName = streamName,
-                suffix = o.optString("sFlvUrlSuffix")
-                    .ifEmpty { if (o.optInt("iIsHls") == 1) "m3u8" else "flv" },
-                antiCode = o.optString("sFlvAntiCode"),
-                isHls = o.optInt("iIsHls") == 1,
-            )
-        }
-        if (lines.isEmpty()) return null
 
-        val qualities = mutableListOf(StreamQuality(0, "原画"))
-        val bits = stream.optJSONArray("vBitRate")
-        for (i in 0 until (bits?.length() ?: 0)) {
-            val o = bits?.optJSONObject(i) ?: continue
-            val rate = o.optInt("iBitRate")
-            if (rate == 0) continue
-            qualities += StreamQuality(
-                rate,
-                o.optString("sBitRateDisplayName")
-                    .ifEmpty { QUALITY_NAMES[rate] ?: "档位$rate" }
-            )
+        // 结构 A：gameStreamInfoList（PC/通用）
+        val gsi = deepFind(payload, "gameStreamInfoList") as? JSONArray
+        if (gsi != null) {
+            for (i in 0 until gsi.length()) {
+                val o = gsi.optJSONObject(i) ?: continue
+                val tag = o.optString("sCdnType").lowercase()
+                val name = o.optString("sStreamName").ifEmpty { streamNameGlobal }
+                val useHls = o.optInt("iIsHls") == 1 || o.optString("sHlsUrl").isNotEmpty()
+                lines += if (useHls) {
+                    HuyaLine(
+                        tag = tag,
+                        flvUrl = o.optString("sHlsUrl"),
+                        streamName = name,
+                        suffix = o.optString("sHlsUrlSuffix").ifEmpty { "m3u8" },
+                        antiCode = o.optString("sHlsAntiCode"),
+                        isHls = true,
+                    )
+                } else {
+                    HuyaLine(
+                        tag = tag,
+                        flvUrl = o.optString("sFlvUrl"),
+                        streamName = name,
+                        suffix = o.optString("sFlvUrlSuffix").ifEmpty { "flv" },
+                        antiCode = o.optString("sFlvAntiCode"),
+                        isHls = false,
+                    )
+                }
+            }
+        } else {
+            // 结构 B：vMultiLine（移动端）
+            val vml = deepFind(payload, "vMultiLine") as? JSONArray
+            if (vml != null) {
+                for (i in 0 until vml.length()) {
+                    val o = vml.optJSONObject(i) ?: continue
+                    val url = o.optString("sFlvUrl")
+                    lines += HuyaLine(
+                        tag = url.substringAfter("://").substringBefore("."),
+                        flvUrl = url,
+                        streamName = o.optString("sStreamName").ifEmpty { streamNameGlobal },
+                        suffix = o.optString("sFlvUrlSuffix")
+                            .ifEmpty { if (o.optInt("iIsHls") == 1) "m3u8" else "flv" },
+                        antiCode = o.optString("sFlvAntiCode"),
+                        isHls = o.optInt("iIsHls") == 1,
+                    )
+                }
+            }
         }
+
+        val validLines = lines.filter {
+            it.flvUrl.isNotEmpty() && it.streamName.isNotEmpty() && it.antiCode.isNotEmpty()
+        }
+        if (validLines.isEmpty()) return null
+
+        // 清晰度
+        val qualities = mutableListOf(StreamQuality(0, "原画"))
+        val vbr = deepFind(payload, "vBitRate") as? JSONArray
+        if (vbr != null) {
+            for (i in 0 until vbr.length()) {
+                val o = vbr.optJSONObject(i) ?: continue
+                val rate = o.optInt("iBitRate")
+                if (rate == 0) continue
+                qualities += StreamQuality(
+                    rate,
+                    o.optString("sBitRateDisplayName")
+                        .ifEmpty { QUALITY_NAMES[rate] ?: "档位$rate" }
+                )
+            }
+        }
+
+        // 房间 / 主播信息
+        val gli = deepFind(payload, "gameLiveInfo") as? JSONObject
+        val pi = deepFind(payload, "playerInfo") as? JSONObject
+        val ayyuid = gli?.optLong("lYyid") ?: gli?.optLong("lPresenterUid") ?: 0L
+        val topSid = gli?.optLong("lChannelId") ?: gli?.optLong("lTid") ?: 0L
+        val subSid = gli?.optLong("lSubChannelId") ?: gli?.optLong("lSid") ?: 0L
+        val nick = pi?.optString("sNick").orEmpty()
+            .ifEmpty { gli?.optString("sNick").orEmpty() }
+            .ifEmpty { fallbackNick }
+        val avatar = pi?.optString("sAvatar18").orEmpty().ifEmpty { fallbackAvatar }
+        val fans = pi?.optLong("lFansCount") ?: fallbackFans
+        val title = gli?.optString("sRoomName").orEmpty()
+            .ifEmpty { gli?.optString("sIntroduction").orEmpty() }
+            .ifEmpty { fallbackTitle }
+        val cover = gli?.optString("sScreenshot").orEmpty().ifEmpty { fallbackCover }
+        val startTime = gli?.optLong("lLiveStartTime") ?: 0L
+        val heat = gli?.optLong("lTotalCount") ?: gli?.optLong("lAttendeeCount") ?: 0L
 
         return HuyaStreamResult(
-            roomId = roomId, ayyuid = uid, topSid = topSid, subSid = subSid,
-            title = title, cover = cover, heat = heat, startTime = startTime,
+            roomId = roomId,
+            ayyuid = ayyuid,
+            topSid = topSid,
+            subSid = subSid,
+            title = title,
+            cover = cover,
+            heat = heat,
+            startTime = startTime,
             isLive = isLive,
-            streamer = StreamerInfo(uid, nickname, avatar, fans, isLive),
+            streamer = StreamerInfo(ayyuid, nick, avatar, fans, isLive),
             qualities = qualities,
-            lines = lines.sortedBy { LINE_PRIORITY[it.tag] ?: 99 },
+            lines = validLines.sortedBy { LINE_PRIORITY[it.tag] ?: 99 },
         )
     }
 
+    /** 深度递归搜索：无论虎牙把字段藏在哪一层都能挖出来 */
+    private fun deepFind(node: Any?, key: String): Any? {
+        when (node) {
+            is JSONObject -> {
+                if (node.has(key)) return node.opt(key)
+                val it = node.keys()
+                while (it.hasNext()) {
+                    val r = deepFind(node.opt(it.next()), key)
+                    if (r != null) return r
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    val r = deepFind(node.opt(i), key)
+                    if (r != null) return r
+                }
+            }
+        }
+        return null
+    }
+
+    // ================= 签名 & 播放地址 =================
     fun generateWebAntiCode(antiCode: String, streamName: String, uid: Long): String {
         val p = mutableMapOf<String, String>()
         for (kv in antiCode.split("&")) {
             val i = kv.indexOf('=')
             if (i > 0) {
-                val key = kv.substring(0, i)
-                val value = kv.substring(i + 1).urlDecode()
-                p[key] = value
+                p[kv.substring(0, i)] = kv.substring(i + 1).urlDecode()
             }
         }
-
         val ss = (p["fm"] ?: "").urlDecode().substringBefore("_")
         val wsTime = p["wsTime"] ?: ""
         val ctype = p["ctype"] ?: "web"
