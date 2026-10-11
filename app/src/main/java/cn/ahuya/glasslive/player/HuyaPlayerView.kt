@@ -22,7 +22,7 @@ import cn.ahuya.glasslive.R
 fun HuyaPlayerView(
     url: String?,
     fitCrop: Boolean = false,
-    onError: () -> Unit,
+    onError: (String) -> Unit,
     onFirstFrame: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -34,7 +34,10 @@ fun HuyaPlayerView(
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) { currentError() }
+            override fun onPlayerError(error: PlaybackException) {
+                // ⭐ 把错误码 + 消息传出去
+                currentError("${error.errorCodeName}: ${error.message}")
+            }
             override fun onRenderedFirstFrame() { currentFirst() }
         }
         player.addListener(listener)
@@ -54,7 +57,6 @@ fun HuyaPlayerView(
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            // ⭐  inflate 出 texture_view 版本的 PlayerView
             (LayoutInflater.from(ctx).inflate(R.layout.player_view, null) as PlayerView).apply {
                 this.player = player
             }
