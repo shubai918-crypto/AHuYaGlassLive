@@ -26,7 +26,7 @@ class LivePlayViewModel : ViewModel() {
     var danmakuClient: HuyaDanmakuClient? = null
         private set
 
-    fun enterRoom(roomId: String) {
+fun enterRoom(roomId: String) {
         viewModelScope.launch {
             _uiState.value = PlayState.Loading
             try {
@@ -39,14 +39,12 @@ class LivePlayViewModel : ViewModel() {
                 currentLineIndex = 0
                 currentQualityIndex = 0
                 retryCount = 0
-                connectDanmaku(result)
+                runCatching { connectDanmaku(result) } // 弹幕挂了也不影响播放
                 playCurrent()
             } catch (e: HuyaOfflineException) {
-                // ⭐ 明确告知：房间存在但主播下播了
                 _uiState.value = PlayState.Error("主播未开播：房间存在但当前不在直播，请换一个正在开播的房间号")
-            } catch (e: Exception) {
-                // ⭐ 黑匣子：显示虎牙原始返回片段，便于定位
-                _uiState.value = PlayState.Error("解析失败: ${e.message}")
+            } catch (t: Throwable) {
+                _uiState.value = PlayState.Error("解析失败: ${t.message}")
             }
         }
     }
