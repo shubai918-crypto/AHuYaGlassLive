@@ -1,11 +1,8 @@
 package cn.ahuya.glasslive.ui.glass
 
-import android.graphics.Bitmap
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,22 +27,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawImage
+// ⭐ Kyant0 真玻璃管线
+import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
 
 @Composable
 fun GlassBottomBar(
@@ -60,9 +62,30 @@ fun GlassBottomBar(
     val shape = RoundedCornerShape(28.dp)
     var barRect by remember { mutableStateOf<IntRect?>(null) }
 
-    // ⭐ 精确裁出"底栏背后那块视频区域"，做到 1:1 真穿透
-    val glassBitmap = remember(frame, barRect, playerRect) {
-        computeGlassBitmap(frame, barRect, playerRect)
+    // ⭐ Kyant0 CanvasBackdrop：把"底栏背后那块视频截帧"精确对齐画成背景源
+    val glassBackdrop = rememberCanvasBackdrop {
+        val f = frame
+        val b = barRect
+        val p = playerRect
+        if (f != null && b != null && p != null && p.width > 0 && p.height > 0) {
+            val sx = f.width.toFloat() / p.width
+            val sy = f.height.toFloat() / p.height
+            val l = ((b.left - p.left) * sx).toInt().coerceIn(0, f.width)
+            val t = ((b.top - p.top) * sy).toInt().coerceIn(0, f.height)
+            val r = ((b.right - p.left) * sx).toInt().coerceIn(l, f.width)
+            val bt = ((b.bottom - p.top) * sy).toInt().coerceIn(t, f.height)
+            if (r > l && bt > t) {
+                drawImage(
+                    f,
+                    sourceRect = IntRect(l, t, r, bt),
+                    dstRect = IntRect(0, 0, size.width.toInt(), size.height.toInt()),
+                )
+            } else {
+                drawRect(Color(0xFF1C1C1E))
+            }
+        } else {
+            drawRect(Color(0xFF1C1C1E))
+        }
     }
 
     Box(
@@ -75,27 +98,20 @@ fun GlassBottomBar(
                     (p.y + coords.size.height).toInt()
                 )
             }
-            .clip(shape)
+            // ⭐ Kyant0 drawBackdrop：完整液态玻璃效果链
+            .drawBackdrop(
+                backdrop = glassBackdrop,
+                shape = { shape },
+                effects = {
+                    vibrancy()                 // 色彩增强：透出视频原色
+                    blur(28f.dp.toPx())        // 实时高斯模糊
+                    lens(16f.dp.toPx(), 32f.dp.toPx()) // 边缘折射（API33+ 自动启用）
+                },
+                highlight = { Highlight.Default },     // 边缘高光
+                innerShadow = { InnerShadow(radius = 8f.dp) }, // 内阴影
+                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.10f)) }, // 表面提亮
+            )
     ) {
-        if (glassBitmap != null) {
-            Image(
-                glassBitmap, null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier.matchParentSize().blur(24.dp),
-            )
-        } else if (frame != null) {
-            Image(
-                frame, null,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.BottomCenter,
-                modifier = Modifier.matchParentSize().blur(24.dp),
-            )
-        } else {
-            Box(Modifier.matchParentSize().background(Color(0xFF1C1C1E)))
-        }
-        Box(Modifier.matchParentSize().background(Color.White.copy(alpha = 0.10f)))
-        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.18f)))
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -105,35 +121,9 @@ fun GlassBottomBar(
         ) {
             DanmakuInputPill(Modifier.weight(1f), onSendClick)
             GlassIconAction(Icons.Default.Hd, "清晰度", onQualityClick)
-            GlassIconAction(Icons.Default.Settings, "设置", onSettingsClick)
+            GlassIconAction(Icons.Default.Settings, "设置", onQualityClick)
             GlassIconAction(Icons.Default.EmojiEmotions, "表情", onEmoteClick)
         }
-    }
-}
-
-private fun computeGlassBitmap(
-    frame: ImageBitmap?,
-    barRect: IntRect?,
-    playerRect: IntRect?,
-): ImageBitmap? {
-    if (frame == null || barRect == null || playerRect == null) return null
-    if (playerRect.width <= 0 || playerRect.height <= 0) return null
-    return try {
-        val ab = frame.asAndroidBitmap()
-        val sx = ab.width.toFloat() / playerRect.width
-        val sy = ab.height.toFloat() / playerRect.height
-        var l = ((barRect.left - playerRect.left) * sx).toInt()
-        var t = ((barRect.top - playerRect.top) * sy).toInt()
-        var w = (barRect.width * sx).toInt()
-        var h = (barRect.height * sy).toInt()
-        if (w <= 0 || h <= 0) return null
-        l = l.coerceIn(0, ab.width - 1)
-        t = t.coerceIn(0, ab.height - 1)
-        w = w.coerceIn(1, ab.width - l)
-        h = h.coerceIn(1, ab.height - t)
-        Bitmap.createBitmap(ab, l, t, w, h).asImageBitmap()
-    } catch (_: Exception) {
-        null
     }
 }
 
@@ -143,8 +133,6 @@ private fun DanmakuInputPill(modifier: Modifier = Modifier, onClick: () -> Unit)
     Row(
         modifier = modifier
             .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.White.copy(alpha = 0.08f))
             .scale(scale.value)
             .pointerInput(Unit) {
                 detectTapGestures(
