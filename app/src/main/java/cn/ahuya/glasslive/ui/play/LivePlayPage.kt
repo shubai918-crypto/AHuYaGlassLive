@@ -8,9 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Hd
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.Hd
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,14 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.unit.IntRect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
 import cn.ahuya.glasslive.ui.glass.BarAction
 import cn.ahuya.glasslive.ui.glass.LiquidGlassBottomBar
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 fun LivePlayPage(
@@ -39,10 +39,14 @@ fun LivePlayPage(
 ) {
     val state by viewModel.uiState.collectAsState()
     var videoReady by remember { mutableStateOf(false) }
-    var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-    var playerRect by remember { mutableStateOf<IntRect?>(null) }
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
+
+    // ⭐ 教程 Step2：背景色也要画进 backdrop，避免透明像素
+    val backdrop = rememberLayerBackdrop {
+        drawRect(Color.Black)
+        drawContent()
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
@@ -52,41 +56,39 @@ fun LivePlayPage(
             )
             is PlayState.Error -> CenterText(s.msg)
             is PlayState.Playing -> {
-                HuyaPlayerView(
-                    url = s.url,
-                    onError = { err ->
-                        videoReady = false
-                        viewModel.onPlayerError(err)
-                    },
-                    onFirstFrame = { videoReady = true },
-                    onFrame = { frame = it },
-                    onPlayerRect = { playerRect = it },
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-                AnimatedVisibility(
-                    visible = !videoReady,
-                    enter = fadeIn(),
-                    exit = fadeOut(animationSpec = tween(600)),
-                ) {
-                    Box(
-                        Modifier.fillMaxSize().background(Color(0xFF101014)),
-                        contentAlignment = Alignment.Center,
+                // ⭐ 教程 Step1：layerBackdrop 包在背景内容（播放器）上
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                    HuyaPlayerView(
+                        url = s.url,
+                        onError = { err ->
+                            videoReady = false
+                            viewModel.onPlayerError(err)
+                        },
+                        onFirstFrame = { videoReady = true },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    AnimatedVisibility(
+                        visible = !videoReady,
+                        enter = fadeIn(),
+                        exit = fadeOut(animationSpec = tween(600)),
                     ) {
-                        CircularProgressIndicator(color = Color(0xFF00D2FF))
+                        Box(
+                            Modifier.fillMaxSize().background(Color(0xFF101014)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFF00D2FF))
+                        }
                     }
                 }
 
-                // ⭐ 酷安同款液态玻璃悬浮底栏
                 LiquidGlassBottomBar(
-                    frame = frame,
-                    playerRect = playerRect,
+                    backdrop = backdrop,
                     modifier = Modifier.align(Alignment.BottomCenter),
-                    onInputClick = { /* TODO: 唤起发弹幕面板 */ },
+                    onInputClick = { /* TODO: 发弹幕面板 */ },
                     actions = listOf(
-                        BarAction(Icons.Default.Hd, "清晰度") { /* TODO: 清晰度面板 */ },
-                        BarAction(Icons.Default.Settings, "设置") { /* TODO: 设置面板 */ },
-                        BarAction(Icons.Default.Share, "转发") { /* TODO: 分享 */ },
+                        BarAction(Icons.Outlined.Hd, "清晰度") { /* TODO */ },
+                        BarAction(Icons.Outlined.Settings, "设置") { /* TODO */ },
+                        BarAction(Icons.Outlined.Share, "转发") { /* TODO */ },
                     ),
                 )
             }
