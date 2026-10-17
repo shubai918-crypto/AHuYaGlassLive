@@ -6,7 +6,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.view.AndroidView
+// ⭐ 修复1：正确的 AndroidView 导入路径
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -14,16 +15,12 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
-/**
- * Media3 播放器封装：
- * - 直播向小缓冲 LoadControl（贴近直播边缘，抗"播几秒冻住"）
- * - url 变化自动换源重备
- * - 播放错误回调上层（用于换 CDN / 降清晰度 / 重解析）
- */
 @Composable
 fun HuyaPlayerView(
     url: String,
     onError: (String) -> Unit,
+    // ⭐ 修复2：加回 onFirstFrame 回调，用于防黑屏遮罩淡出
+    onFirstFrame: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -43,18 +40,20 @@ fun HuyaPlayerView(
             .build()
     }
 
-    // 播放错误 → 回调上层换线/降档
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 onError("${error.errorCodeName}: ${error.message}")
+            }
+            // ⭐ 修复3：实现首帧渲染回调
+            override fun onRenderedFirstFrame() {
+                onFirstFrame()
             }
         }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    // url 变化 → 换源并重新准备；直播流跳到直播边缘
     LaunchedEffect(url) {
         exoPlayer.setMediaItem(MediaItem.fromUri(url))
         exoPlayer.prepare()
@@ -75,7 +74,6 @@ fun HuyaPlayerView(
         },
     )
 
-    // 退出释放
     DisposableEffect(Unit) {
         onDispose { exoPlayer.release() }
     }
