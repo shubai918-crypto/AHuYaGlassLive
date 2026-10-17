@@ -23,6 +23,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
+import cn.ahuya.glasslive.ui.glass.GlassBottomBar
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 fun LivePlayPage(
@@ -34,24 +37,31 @@ fun LivePlayPage(
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
-    // ⭐ 诊断期：移除 layerBackdrop / 玻璃栏，纯播放器，最小变量
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    // ⭐ 初始化液态玻璃采样层
+    val backdrop = rememberLayerBackdrop()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .layerBackdrop(backdrop) // 开启全局背景采样
+            .background(Color.Black)
+    ) {
         when (val s = state) {
             PlayState.Loading -> CenterText("正在连接虎牙直播间…")
-            is PlayState.Offline -> CenterText(
-                s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在"
-            )
+            is PlayState.Offline -> CenterText(s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在")
             is PlayState.Error -> CenterText(s.msg)
             is PlayState.Playing -> {
                 HuyaPlayerView(
                     url = s.url,
                     onError = { err ->
-    videoReady = false
-    viewModel.onPlayerError(err)
-},
+                        videoReady = false
+                        viewModel.onPlayerError(err)
+                    },
                     onFirstFrame = { videoReady = true },
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                // 防黑屏遮罩：首帧渲染后 600ms 丝滑淡出
                 AnimatedVisibility(
                     visible = !videoReady,
                     enter = fadeIn(),
@@ -64,7 +74,12 @@ fun LivePlayPage(
                         CircularProgressIndicator(color = Color(0xFF00D2FF))
                     }
                 }
-                // 诊断期：暂不放任何底栏
+
+                // ⭐ 注入灵魂：液态玻璃悬浮底栏
+                GlassBottomBar(
+                    backdrop = backdrop,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
         }
     }
