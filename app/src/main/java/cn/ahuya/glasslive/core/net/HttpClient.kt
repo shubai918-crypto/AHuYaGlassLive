@@ -8,8 +8,8 @@ import java.util.concurrent.TimeUnit
 
 object HttpClient {
 
-    const val PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-    const val MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+    const val PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    const val MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
 
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -18,13 +18,16 @@ object HttpClient {
             .build()
     }
 
-    /** suspend 版 GET，失败直接抛异常，由调用方兜底 */
-    suspend fun get(url: String, ua: String = PC_UA): String =
-        withContext(Dispatchers.IO) {
-            val req = Request.Builder().url(url).header("User-Agent", ua).build()
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) throw RuntimeException("HTTP ${resp.code}: $url")
-                resp.body?.string().orEmpty()
-            }
+    suspend fun get(
+        url: String,
+        ua: String = PC_UA,
+        headers: Map<String, String> = emptyMap(),
+    ): String = withContext(Dispatchers.IO) {
+        val builder = Request.Builder().url(url).header("User-Agent", ua)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        client.newCall(builder.build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw RuntimeException("HTTP ${resp.code}: $url")
+            resp.body?.string().orEmpty()
         }
+    }
 }
