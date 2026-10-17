@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +30,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import java.util.concurrent.atomic.AtomicLong
 
 @Composable
 fun HuyaPlayerView(
@@ -51,6 +53,10 @@ fun HuyaPlayerView(
     }
     var textureView by remember { mutableStateOf<TextureView?>(null) }
     var videoAspect by remember { mutableStateOf<Float?>(null) }
+
+    // ⭐ 修复：用 rememberUpdatedState 持有回调，LaunchedEffect 不再因 lambda 身份变化而重启
+    val frameCb by rememberUpdatedState(onFrame)
+    val lastGrab = remember { AtomicLong(0L) }
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
@@ -75,19 +81,18 @@ fun HuyaPlayerView(
         exoPlayer.seekToDefaultPosition()
     }
 
-    // 截帧循环
-    LaunchedEffect(textureView, onFrame) {
+    // 截帧循环（单 key，稳定运行）
+    LaunchedEffect(textureView) {
         val tv = textureView ?: return@LaunchedEffect
-        val cb = onFrame ?: return@LaunchedEffect
         while (isActive) {
             delay(120)
+            val cb = frameCb ?: continue
             runCatching { tv.getBitmap() }.getOrNull()?.let { bmp ->
                 if (bmp.width > 0 && bmp.height > 0) cb(bmp.asImageBitmap())
             }
         }
     }
 
-    // ⭐ 保持视频原始比例（留黑边，不拉伸）
     Box(modifier, contentAlignment = Alignment.Center) {
         val aspect = videoAspect
         AndroidView(
@@ -115,7 +120,16 @@ fun HuyaPlayerView(
                             exoPlayer.clearVideoTextureView(this@apply)
                             return true
                         }
-                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                        // ⭐ 双保险：每帧更新时节流截帧
+                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastGrab.get() < 100) return
+                            lastGrab.set(now)
+                            val cb = frameCb ?: return
+                            runCatching { this@apply.getBitmap() }.getOrNull()?.let { bmp ->
+                                if (bmp.width > 0 && bmp.height > 0) cb(bmp.asImageBitmap())
+                            }
+                        }
                     }
                 }
             },
