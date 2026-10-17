@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import cn.ahuya.glasslive.data.huya.HuyaDanmakuClient
 import cn.ahuya.glasslive.data.huya.HuyaOfflineException
 import cn.ahuya.glasslive.data.huya.HuyaStreamResolver
-import cn.ahuya.glasslive.data.huya.model.HuyaLine
+import cn.ahuya.glasslive.data.huya.model.CdnUrl
 import cn.ahuya.glasslive.data.huya.model.HuyaStreamResult
 import cn.ahuya.glasslive.data.huya.model.StreamQuality
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,8 +19,8 @@ class LivePlayViewModel : ViewModel() {
     val uiState: StateFlow<PlayState> = _uiState.asStateFlow()
 
     private var currentResult: HuyaStreamResult? = null
-    private var currentLineIndex = 0
-    private var currentQualityIndex = 0
+    private var qualityIndex = 0
+    private var candidateIndex = 0
     private var retryCount = 0
     private var lastError = ""
 
@@ -32,18 +32,14 @@ class LivePlayViewModel : ViewModel() {
             _uiState.value = PlayState.Loading
             try {
                 val result = HuyaStreamResolver.resolve(roomId)
-                if (!result.isLive || result.lines.isEmpty()) {
-                    _uiState.value = PlayState.Offline(result)
-                    return@launch
-                }
                 currentResult = result
-                currentLineIndex = 0
-                currentQualityIndex = 0
+                qualityIndex = 0
+                candidateIndex = 0
                 retryCount = 0
                 runCatching { connectDanmaku(result) }
                 playCurrent()
             } catch (e: HuyaOfflineException) {
-                _uiState.value = PlayState.Error("主播未开播：房间存在但当前不在直播")
+                _uiState.value = PlayState.Error("主播未开播：${e.nick} 当前不在直播")
             } catch (t: Throwable) {
                 _uiState.value = PlayState.Error("解析失败: ${t.message}")
             }
@@ -58,28 +54,32 @@ class LivePlayViewModel : ViewModel() {
 
     private fun playCurrent() {
         val res = currentResult ?: return
-        val line = res.lines.getOrNull(currentLineIndex) ?: res.lines.first()
-        val quality = res.qualities.getOrNull(currentQualityIndex) ?: res.qualities.first()
-        val url = HuyaStreamResolver.buildPlayUrl(line, quality, res.ayyuid)
-        _uiState.value = PlayState.Playing(url, line, quality, res)
+        val q = res.qualities.getOrNull(qualityIndex) ?: res.qualities.first()
+        val c = q.candidates.getOrNull(candidateIndex) ?: q.candidates.first()
+        _uiState.value = PlayState.Playing(c.url, q, c, res)
     }
 
-    /** ⭐ 接收播放器真实错误，最终失败时显示出来 */
+    /** 播放器报错：先换 CDN 候选 → 再降清晰度 → 最后重新解析 */
     fun onPlayerError(errInfo: String) {
         lastError = errInfo
         val res = currentResult ?: return
+        val q = res.qualities.getOrNull(qualityIndex)
+        if (q != null && candidateIndex < q.candidates.size - 1) {
+            candidateIndex++; playCurrent(); return
+        }
+        if (qualityIndex < res.qualities.size - 1) {
+            qualityIndex++; candidateIndex = 0; playCurrent(); return
+        }
         retryCount++
-        if (currentQualityIndex < res.qualities.size - 1) { currentQualityIndex++; playCurrent(); return }
-        if (currentLineIndex < res.lines.size - 1) { currentLineIndex++; currentQualityIndex = 0; playCurrent(); return }
         if (retryCount < 3) { enterRoom(res.roomId); return }
-        val line = res.lines.getOrNull(currentLineIndex)
+        val last = q?.candidates?.lastOrNull()
         _uiState.value = PlayState.Error(
-            "所有线路均不可用\n最后错误: $lastError\n末次线路: ${line?.tag}/${if (line?.isHls == true) "HLS" else "FLV"}"
+            "所有线路均不可用\n最后错误: $lastError\n末次: ${q?.name}/${last?.cdn}"
         )
     }
 
-    fun switchQuality(index: Int) { currentQualityIndex = index; playCurrent() }
-    fun switchLine(index: Int) { currentLineIndex = index; playCurrent() }
+    fun switchQuality(index: Int) { qualityIndex = index; candidateIndex = 0; playCurrent() }
+    fun switchCandidate(index: Int) { candidateIndex = index; playCurrent() }
 
     override fun onCleared() {
         super.onCleared()
@@ -89,7 +89,12 @@ class LivePlayViewModel : ViewModel() {
 
 sealed class PlayState {
     object Loading : PlayState()
-    data class Playing(val url: String, val line: HuyaLine, val quality: StreamQuality, val result: HuyaStreamResult) : PlayState()
+    data class Playing(
+        val url: String,
+        val quality: StreamQuality,
+        val candidate: CdnUrl,
+        val result: HuyaStreamResult,
+    ) : PlayState()
     data class Offline(val result: HuyaStreamResult?) : PlayState()
     data class Error(val msg: String) : PlayState()
 }
