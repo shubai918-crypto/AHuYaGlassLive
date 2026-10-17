@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,13 +20,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
 import cn.ahuya.glasslive.ui.glass.GlassBottomBar
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 fun LivePlayPage(
@@ -34,18 +35,11 @@ fun LivePlayPage(
 ) {
     val state by viewModel.uiState.collectAsState()
     var videoReady by remember { mutableStateOf(false) }
+    var frame by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
-    // ⭐ 初始化液态玻璃采样层
-    val backdrop = rememberLayerBackdrop()
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .layerBackdrop(backdrop) // 开启全局背景采样
-            .background(Color.Black)
-    ) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
             PlayState.Loading -> CenterText("正在连接虎牙直播间…")
             is PlayState.Offline -> CenterText(s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在")
@@ -58,10 +52,10 @@ fun LivePlayPage(
                         viewModel.onPlayerError(err)
                     },
                     onFirstFrame = { videoReady = true },
+                    onFrame = { frame = it },
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                // 防黑屏遮罩：首帧渲染后 600ms 丝滑淡出
                 AnimatedVisibility(
                     visible = !videoReady,
                     enter = fadeIn(),
@@ -75,10 +69,12 @@ fun LivePlayPage(
                     }
                 }
 
-                // ⭐ 注入灵魂：液态玻璃悬浮底栏
                 GlassBottomBar(
-                    backdrop = backdrop,
-                    modifier = Modifier.align(Alignment.BottomCenter)
+                    frame = frame,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 24.dp),
                 )
             }
         }
