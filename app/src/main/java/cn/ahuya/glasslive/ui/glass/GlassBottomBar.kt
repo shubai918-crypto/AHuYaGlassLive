@@ -35,11 +35,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.drawImage
 // ⭐ Kyant0 真玻璃管线
 import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
 import com.kyant.backdrop.drawBackdrop
@@ -75,10 +75,13 @@ fun GlassBottomBar(
             val r = ((b.right - p.left) * sx).toInt().coerceIn(l, f.width)
             val bt = ((b.bottom - p.top) * sy).toInt().coerceIn(t, f.height)
             if (r > l && bt > t) {
+                // ⭐ 修正：DrawScope.drawImage 用 srcOffset/srcSize/dstOffset/dstSize
                 drawImage(
-                    f,
-                    sourceRect = IntRect(l, t, r, bt),
-                    dstRect = IntRect(0, 0, size.width.toInt(), size.height.toInt()),
+                    image = f,
+                    srcOffset = IntOffset(l, t),
+                    srcSize = IntSize(r - l, bt - t),
+                    dstOffset = IntOffset.Zero,
+                    dstSize = IntSize(size.width.toInt(), size.height.toInt()),
                 )
             } else {
                 drawRect(Color(0xFF1C1C1E))
@@ -103,12 +106,12 @@ fun GlassBottomBar(
                 backdrop = glassBackdrop,
                 shape = { shape },
                 effects = {
-                    vibrancy()                 // 色彩增强：透出视频原色
-                    blur(28f.dp.toPx())        // 实时高斯模糊
-                    lens(16f.dp.toPx(), 32f.dp.toPx()) // 边缘折射（API33+ 自动启用）
+                    vibrancy()                          // 色彩增强：透出视频原色
+                    blur(28f.dp.toPx())                 // 实时高斯模糊
+                    lens(16f.dp.toPx(), 32f.dp.toPx())  // 边缘折射（API33+ 自动启用）
                 },
-                highlight = { Highlight.Default },     // 边缘高光
-                innerShadow = { InnerShadow(radius = 8f.dp) }, // 内阴影
+                highlight = { Highlight.Default },              // 边缘高光
+                innerShadow = { InnerShadow(radius = 8f.dp) },  // 内阴影
                 onDrawSurface = { drawRect(Color.White.copy(alpha = 0.10f)) }, // 表面提亮
             )
     ) {
@@ -121,7 +124,7 @@ fun GlassBottomBar(
         ) {
             DanmakuInputPill(Modifier.weight(1f), onSendClick)
             GlassIconAction(Icons.Default.Hd, "清晰度", onQualityClick)
-            GlassIconAction(Icons.Default.Settings, "设置", onQualityClick)
+            GlassIconAction(Icons.Default.Settings, "设置", onSettingsClick)
             GlassIconAction(Icons.Default.EmojiEmotions, "表情", onEmoteClick)
         }
     }
