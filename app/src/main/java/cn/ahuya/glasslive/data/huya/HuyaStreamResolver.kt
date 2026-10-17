@@ -111,9 +111,10 @@ object HuyaStreamResolver {
             val uuidSeed = (t13 % 10000000000L) * 1000 + (random.nextDouble() * 1000).toLong()
             val initUuid = uuidSeed % 4294967295L
 
-            val wsSecretHash = md5("$seqId|$ctype|$paramsT")
-            val wsSecretPlain = "${wsPrefix}_${uid}_${streamName}_${wsSecretHash}_$wsTime"
-            val wsSecretMd5 = md5(wsSecretPlain)
+            
+val wsSecretHash = "$seqId|$ctype|$paramsT".md5()
+val wsSecretPlain = "${wsPrefix}_${uid}_${streamName}_${wsSecretHash}_$wsTime"
+val wsSecretMd5 = wsSecretPlain.md5()
 
             listOf(
                 "wsSecret=$wsSecretMd5",
