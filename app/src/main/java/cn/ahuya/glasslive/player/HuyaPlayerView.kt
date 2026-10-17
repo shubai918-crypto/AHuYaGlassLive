@@ -82,7 +82,8 @@ fun HuyaPlayerView(
                     }
                     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, w: Int, h: Int) {}
                     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                        exoPlayer.clearVideoTextureView()
+                        // ✅ 正确：传入当前 TextureView 实例
+exoPlayer.clearVideoTextureView(this@apply)
                         return true
                     }
                     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
