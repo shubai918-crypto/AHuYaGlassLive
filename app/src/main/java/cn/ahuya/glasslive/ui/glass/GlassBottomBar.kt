@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-// ⭐ 官方源码确认的特效包路径
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 
@@ -64,8 +63,8 @@ fun GlassBottomBar(
                 .clip(rightShape)
                 .drawBackdrop(
                     backdrop = backdrop,
-                    shape = { rightShape }, // ⭐ 修复1：传入 Lambda
-                    effects = {             // ⭐ 修复2：显式命名 effects 参数
+                    shape = { rightShape }, // 2.0.1 必填 Lambda
+                    effects = {             // 2.0.1 显式命名
                         blur(24f)
                         vibrancy()
                     }
@@ -96,8 +95,8 @@ private fun DanmakuInputPill(
             .clip(pillShape)
             .drawBackdrop(
                 backdrop = backdrop,
-                shape = { pillShape },    // ⭐ 修复1：传入 Lambda
-                effects = {               // ⭐ 修复2：显式命名 effects 参数
+                shape = { pillShape },
+                effects = {
                     blur(24f)
                     vibrancy()
                 }
