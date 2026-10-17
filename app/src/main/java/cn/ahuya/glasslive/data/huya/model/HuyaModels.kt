@@ -1,24 +1,21 @@
 package cn.ahuya.glasslive.data.huya.model
 
-/** 清晰度（bitRate=0 即原画） */
-data class StreamQuality(val bitRate: Int, val name: String)
-
-/** 播放线路 */
-data class HuyaLine(
-    val tag: String,          // al / tx / hs
-    val flvUrl: String,
-    val streamName: String,
-    val suffix: String,       // flv / m3u8
-    val antiCode: String,     // 原始防盗链参数
-    val isHls: Boolean,
-) {
-    val displayName: String get() = when (tag) {
+/** 一条 CDN 候选线路（url 已含签名与 ratio） */
+data class CdnUrl(val cdn: String, val url: String) {
+    val displayName: String get() = when (cdn.lowercase()) {
         "al" -> "阿里"
-        "tx" -> "腾讯"
         "hs" -> "火山"
-        else -> tag.uppercase()
+        "tx" -> "腾讯"
+        else -> cdn.uppercase()
     }
 }
+
+/** 清晰度：每个档位自带按 CDN 优先级排序的候选 url 列表（对齐 Dart） */
+data class StreamQuality(
+    val bitRate: Int,
+    val name: String,
+    val candidates: List<CdnUrl>,
+)
 
 data class StreamerInfo(
     val uid: Long,
@@ -31,7 +28,7 @@ data class StreamerInfo(
 data class HuyaStreamResult(
     val roomId: String,
     val ayyuid: Long,
-    val topSid: Long,   // 弹幕 WebSocket 订阅要用
+    val topSid: Long,
     val subSid: Long,
     val title: String,
     val cover: String,
@@ -40,5 +37,4 @@ data class HuyaStreamResult(
     val isLive: Boolean,
     val streamer: StreamerInfo,
     val qualities: List<StreamQuality>,
-    val lines: List<HuyaLine>,
 )
