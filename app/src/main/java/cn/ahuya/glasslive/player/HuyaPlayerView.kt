@@ -1,69 +1,82 @@
 package cn.ahuya.glasslive.player
 
-import android.view.LayoutInflater
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.view.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import cn.ahuya.glasslive.R
 
+/**
+ * Media3 播放器封装：
+ * - 直播向小缓冲 LoadControl（贴近直播边缘，抗"播几秒冻住"）
+ * - url 变化自动换源重备
+ * - 播放错误回调上层（用于换 CDN / 降清晰度 / 重解析）
+ */
 @Composable
 fun HuyaPlayerView(
-    url: String?,
-    fitCrop: Boolean = false,
+    url: String,
     onError: (String) -> Unit,
-    onFirstFrame: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val player = remember { ExoPlayer.Builder(context).build() }
 
-    val currentError by rememberUpdatedState(onError)
-    val currentFirst by rememberUpdatedState(onFirstFrame)
-
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                // ⭐ 把错误码 + 消息传出去
-                currentError("${error.errorCodeName}: ${error.message}")
-            }
-            override fun onRenderedFirstFrame() { currentFirst() }
-        }
-        player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-            player.release()
-        }
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context)
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 2_000,
+                        /* maxBufferMs = */ 8_000,
+                        /* bufferForPlaybackMs = */ 1_000,
+                        /* bufferForPlaybackAfterRebufferMs = */ 2_000,
+                    )
+                    .build()
+            )
+            .build()
     }
 
+    // 播放错误 → 回调上层换线/降档
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                onError("${error.errorCodeName}: ${error.message}")
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
+
+    // url 变化 → 换源并重新准备；直播流跳到直播边缘
     LaunchedEffect(url) {
-        if (url.isNullOrEmpty()) return@LaunchedEffect
-        player.setMediaItem(MediaItem.fromUri(url))
-        player.prepare()
-        player.playWhenReady = true
+        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+        exoPlayer.seekToDefaultPosition()
     }
 
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            (LayoutInflater.from(ctx).inflate(R.layout.player_view, null) as PlayerView).apply {
-                this.player = player
+            PlayerView(ctx).apply {
+                useController = false
+                player = exoPlayer
             }
         },
         update = { view ->
-            view.resizeMode = if (fitCrop) AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                              else AspectRatioFrameLayout.RESIZE_MODE_FIT
+            view.player = exoPlayer
         },
     )
+
+    // 退出释放
+    DisposableEffect(Unit) {
+        onDispose { exoPlayer.release() }
+    }
 }
