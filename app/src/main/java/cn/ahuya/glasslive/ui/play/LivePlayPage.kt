@@ -7,7 +7,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Hd
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,12 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
 import cn.ahuya.glasslive.player.PlayState
-import cn.ahuya.glasslive.ui.glass.GlassBottomBar
+import cn.ahuya.glasslive.ui.glass.BarAction
+import cn.ahuya.glasslive.ui.glass.LiquidGlassBottomBar
 
 @Composable
 fun LivePlayPage(
@@ -44,7 +47,9 @@ fun LivePlayPage(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
             PlayState.Loading -> CenterText("正在连接虎牙直播间…")
-            is PlayState.Offline -> CenterText(s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在")
+            is PlayState.Offline -> CenterText(
+                s.result?.streamer?.nickname?.let { "$it 未开播" } ?: "房间不存在"
+            )
             is PlayState.Error -> CenterText(s.msg)
             is PlayState.Playing -> {
                 HuyaPlayerView(
@@ -72,13 +77,17 @@ fun LivePlayPage(
                     }
                 }
 
-                GlassBottomBar(
+                // ⭐ 酷安同款液态玻璃悬浮底栏
+                LiquidGlassBottomBar(
                     frame = frame,
                     playerRect = playerRect,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 24.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onInputClick = { /* TODO: 唤起发弹幕面板 */ },
+                    actions = listOf(
+                        BarAction(Icons.Default.Hd, "清晰度") { /* TODO: 清晰度面板 */ },
+                        BarAction(Icons.Default.Settings, "设置") { /* TODO: 设置面板 */ },
+                        BarAction(Icons.Default.Share, "转发") { /* TODO: 分享 */ },
+                    ),
                 )
             }
         }
