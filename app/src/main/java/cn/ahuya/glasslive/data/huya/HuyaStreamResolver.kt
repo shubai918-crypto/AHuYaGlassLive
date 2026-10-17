@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 import kotlin.random.Random
 
+/** 主播未开播 */
 class HuyaOfflineException(val nick: String) : Exception("主播未开播")
 
 object HuyaStreamResolver {
@@ -26,26 +27,32 @@ object HuyaStreamResolver {
 
     private val random = Random(System.currentTimeMillis())
 
-    // ================= 工具 =================
+    // ================= 通用工具 =================
     private fun i(v: Any?): Int = when (v) {
         is Int -> v
         is Number -> v.toInt()
         is String -> v.toIntOrNull() ?: 0
         else -> 0
     }
+
     private fun l(v: Any?): Long = when (v) {
         is Long -> v
         is Number -> v.toLong()
         is String -> v.toLongOrNull() ?: 0L
         else -> 0L
     }
+
     private fun s(v: Any?): String = v?.toString() ?: ""
+
     private fun firstNonZeroL(vals: List<Any?>): Long {
-        for (v in vals) { val n = l(v); if (n > 0) return n }
+        for (v in vals) {
+            val n = l(v)
+            if (n > 0) return n
+        }
         return 0L
     }
 
-    /** Dart: enforceHttp —— 虎牙 CDN 必须走 http */
+    /** 虎牙 CDN 必须走 http（对齐 Dart enforceHttp） */
     fun enforceHttp(url: String): String =
         if (url.startsWith("https://")) url.replaceFirst("https://", "http://") else url
 
@@ -76,7 +83,11 @@ object HuyaStreamResolver {
             val c = src[i]
             if (c == '%' && i + 2 < src.length) {
                 val b = src.substring(i + 1, i + 3).toIntOrNull(16)
-                if (b != null) { out.write(b); i += 3; continue }
+                if (b != null) {
+                    out.write(b)
+                    i += 3
+                    continue
+                }
             }
             if (c.code < 128) out.write(c.code)
             else out.write(c.toString().toByteArray(Charsets.UTF_8))
@@ -86,8 +97,11 @@ object HuyaStreamResolver {
     }
 
     private fun b64Decode(str: String): ByteArray =
-        try { Base64.getDecoder().decode(str) }
-        catch (_: Exception) { Base64.getMimeDecoder().decode(str) }
+        try {
+            Base64.getDecoder().decode(str)
+        } catch (_: Exception) {
+            Base64.getMimeDecoder().decode(str)
+        }
 
     // ================= dtv 同款签名 =================
     fun generateWebAntiCode(streamName: String, antiCode: String): String {
@@ -98,6 +112,7 @@ object HuyaStreamResolver {
             val ctype = params["ctype"] ?: return ""
             val fs = params["fs"] ?: return ""
 
+            // fm → URL 解码 → Base64 解码 → 取第一段作 wsPrefix
             val fmPlain = String(b64Decode(decodeComponent(fmValue)), Charsets.UTF_8)
             val wsPrefix = fmPlain.split('_').first()
             if (wsPrefix.isEmpty()) return ""
@@ -111,10 +126,9 @@ object HuyaStreamResolver {
             val uuidSeed = (t13 % 10000000000L) * 1000 + (random.nextDouble() * 1000).toLong()
             val initUuid = uuidSeed % 4294967295L
 
-            
-val wsSecretHash = "$seqId|$ctype|$paramsT".md5()
-val wsSecretPlain = "${wsPrefix}_${uid}_${streamName}_${wsSecretHash}_$wsTime"
-val wsSecretMd5 = wsSecretPlain.md5()
+            val wsSecretHash = "$seqId|$ctype|$paramsT".md5()
+            val wsSecretPlain = "${wsPrefix}_${uid}_${streamName}_${wsSecretHash}_$wsTime"
+            val wsSecretMd5 = wsSecretPlain.md5()
 
             listOf(
                 "wsSecret=$wsSecretMd5",
@@ -130,7 +144,9 @@ val wsSecretMd5 = wsSecretPlain.md5()
                 "sdk_sid=$sdkSid",
                 "codec=264",
             ).joinToString("&")
-        } catch (_: Exception) { "" }
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     // ================= dtv 同款 tx 修正 =================
@@ -141,8 +157,12 @@ val wsSecretMd5 = wsSecretPlain.md5()
         return enforceHttp(s)
     }
 
+    /** CDN 优先级：al → hs → tx */
     private fun cdnRank(cdn: String): Int = when (cdn.lowercase()) {
-        "al" -> 0; "hs" -> 1; "tx" -> 2; else -> 3
+        "al" -> 0
+        "hs" -> 1
+        "tx" -> 2
+        else -> 3
     }
 
     // ================= 网页抓取（带 Cookie/Referer） =================
@@ -169,7 +189,10 @@ val wsSecretMd5 = wsSecretPlain.md5()
     private fun parseFlvCandidates(html: String): List<CdnUrl> {
         if (html.isEmpty()) return emptyList()
         return try {
-            val re = Regex("stream:\\s*(\\{\"data\".*?),\"iWebDefaultBitRate\"", setOf(RegexOption.DOT_MATCHES_ALL))
+            val re = Regex(
+                "stream:\\s*(\\{\"data\".*?),\"iWebDefaultBitRate\"",
+                setOf(RegexOption.DOT_MATCHES_ALL)
+            )
             val m = re.find(html) ?: return emptyList()
             val block = JSONObject(m.groupValues[1] + "}")
             val dataList = block.optJSONArray("data") ?: return emptyList()
@@ -183,16 +206,20 @@ val wsSecretMd5 = wsSecretPlain.md5()
                 val streamName = s(obj.opt("sStreamName"))
                 val suffix = s(obj.opt("sFlvUrlSuffix"))
                 val anti = s(obj.opt("sFlvAntiCode"))
-                if (cdn.isEmpty() || flvUrl.isEmpty() || streamName.isEmpty() || suffix.isEmpty() || anti.isEmpty()) continue
+                if (cdn.isEmpty() || flvUrl.isEmpty() || streamName.isEmpty() ||
+                    suffix.isEmpty() || anti.isEmpty()
+                ) continue
                 val p = generateWebAntiCode(streamName, anti)
                 if (p.isEmpty()) continue
                 result += CdnUrl(cdn, adjustTxStreamUrl("$flvUrl/$streamName.$suffix?$p", cdn))
             }
             result
-        } catch (_: Exception) { emptyList() }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
-    // ================= 入口 =================
+    // ================= 入口：官方 API 信息 + 线路候选 =================
     suspend fun resolve(roomId: String): HuyaStreamResult = withContext(Dispatchers.IO) {
         val body = HttpClient.get(
             API_URL + roomId + "&showSecret=1",
@@ -200,22 +227,27 @@ val wsSecretMd5 = wsSecretPlain.md5()
             headers = mapOf("Referer" to "https://www.huya.com/"),
         )
         val root = JSONObject(body)
-        if (root.optInt("status") != 200) throw RuntimeException("API status=${root.optInt("status")}")
+        if (root.optInt("status") != 200) {
+            throw RuntimeException("API status=${root.optInt("status")}")
+        }
         val data = root.optJSONObject("data") ?: throw RuntimeException("API 无 data")
         val profile = data.optJSONObject("profileInfo") ?: JSONObject()
         val liveData = data.optJSONObject("liveData") ?: JSONObject()
         val stream = data.optJSONObject("stream") ?: JSONObject()
-        // ⭐ 虎牙官方拼写就是 baseSteamInfoList
+        // 虎牙官方拼写就是 baseSteamInfoList（照抄不改）
         val baseList = stream.optJSONArray("baseSteamInfoList")
             ?: stream.optJSONArray("gameStreamInfoList")
             ?: JSONArray()
 
+        // 码率（清晰度）列表
         var rates = JSONArray()
         val bitRateInfo = liveData.opt("bitRateInfo")
         if (bitRateInfo is String && bitRateInfo.isNotEmpty()) {
             rates = runCatching { JSONArray(bitRateInfo) }.getOrDefault(JSONArray())
         }
-        if (rates.length() == 0) rates = stream.optJSONArray("vMultiStreamInfo") ?: JSONArray()
+        if (rates.length() == 0) {
+            rates = stream.optJSONArray("vMultiStreamInfo") ?: JSONArray()
+        }
 
         val liveStatus = s(data.opt("liveStatus")).uppercase()
         val realLiveStatus = s(data.opt("realLiveStatus")).uppercase()
@@ -229,6 +261,7 @@ val wsSecretMd5 = wsSecretPlain.md5()
         val startTime = l(liveData.opt("startTime"))
         val cover = s(liveData.opt("screenshot"))
 
+        // 弹幕频道 ID（chTopId/subChId，lUid 系，防 -99）
         val uidVal = firstNonZeroL(listOf(profile.opt("uid"), liveData.opt("uid")))
         val yyid = firstNonZeroL(listOf(profile.opt("yyid"), liveData.opt("yyid")))
         val topSid = firstNonZeroL(listOf(data.opt("chTopId"), liveData.opt("liveChannel"), uidVal, yyid))
@@ -237,7 +270,7 @@ val wsSecretMd5 = wsSecretPlain.md5()
 
         if (!isLive) throw HuyaOfflineException(nickname)
 
-        // ⭐ 线路优先级：网页 FLV(dtv同源) → API FLV → API HLS
+        // 线路：网页 FLV（dtv 同源）→ API FLV → API HLS
         var webFlv = parseFlvCandidates(runCatching { fetchHtml(roomId, false) }.getOrDefault(""))
         if (webFlv.isEmpty()) {
             webFlv = parseFlvCandidates(runCatching { fetchHtml(roomId, true) }.getOrDefault(""))
@@ -256,7 +289,9 @@ val wsSecretMd5 = wsSecretPlain.md5()
             val flvAnti = s(bm.opt("sFlvAntiCode"))
             if (flvUrl.isNotEmpty() && flvAnti.isNotEmpty()) {
                 val p = generateWebAntiCode(streamName, flvAnti)
-                if (p.isNotEmpty()) apiFlv += CdnUrl(cdn, adjustTxStreamUrl("$flvUrl/$streamName.$flvSuffix?$p", cdn))
+                if (p.isNotEmpty()) {
+                    apiFlv += CdnUrl(cdn, adjustTxStreamUrl("$flvUrl/$streamName.$flvSuffix?$p", cdn))
+                }
             }
 
             val hlsUrl = trimSlash(s(bm.opt("sHlsUrl")))
@@ -264,14 +299,19 @@ val wsSecretMd5 = wsSecretPlain.md5()
             val hlsAnti = s(bm.opt("sHlsAntiCode"))
             if (hlsUrl.isNotEmpty() && hlsAnti.isNotEmpty()) {
                 val p = generateWebAntiCode(streamName, hlsAnti)
-                if (p.isNotEmpty()) apiHls += CdnUrl(cdn, adjustTxStreamUrl("$hlsUrl/$streamName.$hlsSuffix?$p", cdn))
+                if (p.isNotEmpty()) {
+                    apiHls += CdnUrl(cdn, adjustTxStreamUrl("$hlsUrl/$streamName.$hlsSuffix?$p", cdn))
+                }
             }
         }
 
         val flvList = (if (webFlv.isNotEmpty()) webFlv else apiFlv).sortedBy { cdnRank(it.cdn) }
-        val ordered = flvList + apiHls.sortedBy { cdnRank(it.cdn) }
+        val hlsList = apiHls.sortedBy { cdnRank(it.cdn) }
+        // ⭐ 抗冻结核心：Media3 对 HLS 直播支持远强于 FLV → HLS 优先、FLV 兜底
+        val ordered = hlsList + flvList
         if (ordered.isEmpty()) throw RuntimeException("无可用线路(web/api 均未解析到流)")
 
+        // 清晰度：每档自带按 CDN 优先级排序的候选 url 列表
         val qualities = mutableListOf<StreamQuality>()
         val rateList = if (rates.length() > 0) rates
         else JSONArray().put(JSONObject().put("sDisplayName", "原画").put("iBitRate", 0))
@@ -289,8 +329,14 @@ val wsSecretMd5 = wsSecretPlain.md5()
         if (qualities.isEmpty()) throw RuntimeException("清晰度列表为空")
 
         HuyaStreamResult(
-            roomId = roomId, ayyuid = uid, topSid = topSid, subSid = subSid,
-            title = title, cover = cover, heat = heat, startTime = startTime,
+            roomId = roomId,
+            ayyuid = uid,
+            topSid = topSid,
+            subSid = subSid,
+            title = title,
+            cover = cover,
+            heat = heat,
+            startTime = startTime,
             isLive = true,
             streamer = StreamerInfo(uid, nickname, avatar, fansCount, true),
             qualities = qualities,
