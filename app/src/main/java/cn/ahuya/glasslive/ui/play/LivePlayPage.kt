@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
@@ -36,6 +37,7 @@ fun LivePlayPage(
     val state by viewModel.uiState.collectAsState()
     var videoReady by remember { mutableStateOf(false) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
+    var playerRect by remember { mutableStateOf<IntRect?>(null) }
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
@@ -53,6 +55,7 @@ fun LivePlayPage(
                     },
                     onFirstFrame = { videoReady = true },
                     onFrame = { frame = it },
+                    onPlayerRect = { playerRect = it },
                     modifier = Modifier.fillMaxSize(),
                 )
 
@@ -71,6 +74,7 @@ fun LivePlayPage(
 
                 GlassBottomBar(
                     frame = frame,
+                    playerRect = playerRect,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = 16.dp)
