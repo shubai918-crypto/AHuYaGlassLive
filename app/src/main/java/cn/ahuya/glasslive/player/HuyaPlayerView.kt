@@ -3,6 +3,7 @@ package cn.ahuya.glasslive.player
 import android.graphics.SurfaceTexture
 import android.view.TextureView
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -29,6 +30,8 @@ fun HuyaPlayerView(
     onError: (String) -> Unit,
     onFirstFrame: () -> Unit,
     modifier: Modifier = Modifier,
+    // ⭐ 悬浮叠层插槽：玻璃底栏等控件浮在视频画面之上
+    overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     val context = LocalContext.current
     val exoPlayer = remember {
@@ -65,29 +68,34 @@ fun HuyaPlayerView(
         exoPlayer.seekToDefaultPosition()
     }
 
-    // TextureView（可进图层录制）+ 保持视频比例
     Box(modifier, contentAlignment = Alignment.Center) {
         val aspect = videoAspect
-        AndroidView(
-            modifier = Modifier
+        // 视频框（保持比例）；overlay 浮在视频框内部
+        Box(
+            Modifier
                 .fillMaxSize()
-                .then(if (aspect != null) Modifier.aspectRatio(aspect) else Modifier),
-            factory = { ctx ->
-                TextureView(ctx).apply {
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, w: Int, h: Int) {
-                            exoPlayer.setVideoTextureView(this@apply)
+                .then(if (aspect != null) Modifier.aspectRatio(aspect) else Modifier)
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    TextureView(ctx).apply {
+                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, w: Int, h: Int) {
+                                exoPlayer.setVideoTextureView(this@apply)
+                            }
+                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, w: Int, h: Int) {}
+                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                exoPlayer.clearVideoTextureView(this@apply)
+                                return true
+                            }
+                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
                         }
-                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, w: Int, h: Int) {}
-                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                            exoPlayer.clearVideoTextureView(this@apply)
-                            return true
-                        }
-                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
                     }
-                }
-            },
-        )
+                },
+            )
+            overlay()
+        }
     }
 
     DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
