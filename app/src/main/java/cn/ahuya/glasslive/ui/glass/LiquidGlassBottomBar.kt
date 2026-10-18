@@ -1,5 +1,9 @@
 package cn.ahuya.glasslive.ui.glass
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,10 +18,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,8 +42,8 @@ data class BarAction(
 )
 
 private val PillGray = Color(0xFF8A8D91)
-private val IconDark = Color(0xFF5F6368)
-private val LabelGray = Color(0xFF80868B)
+private val IconDark = Color(0xFF4E5155)   // 图标更深一点，奶白玻璃上才清楚
+private val LabelGray = Color(0xFF808388)
 
 @Composable
 fun LiquidGlassBottomBar(
@@ -50,7 +57,7 @@ fun LiquidGlassBottomBar(
         modifier
             .navigationBarsPadding()
             .padding(horizontal = 12.dp, vertical = 12.dp)
-            // 容器配方 = catalog LiquidBottomTabs：vibrancy + blur8 + lens24 + 浅色 surface
+            // 单胶囊容器：官方 LiquidBottomTabs 配方
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { CircleShape },
@@ -63,40 +70,53 @@ fun LiquidGlassBottomBar(
             )
             .height(56.dp)
             .fillMaxWidth()
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // 左侧输入胶囊 = 官方 LiquidButton（浅灰实心 surface）
+        // 左：输入胶囊 = 官方 LiquidButton（果冻物理 + 按压光晕）
         LiquidButton(
             onClick = onInputClick,
             backdrop = backdrop,
             modifier = Modifier.weight(1f),
-            height = 38.dp,
+            height = 40.dp,
             horizontalPadding = 12.dp,
-            surfaceColor = Color(0xFFEDEFF2).copy(alpha = 0.9f),
+            surfaceColor = Color(0xFFEDEFF2).copy(alpha = 0.92f),
         ) {
             Icon(Icons.Default.Edit, null, tint = PillGray, modifier = Modifier.size(16.dp))
             Text(inputHint, color = PillGray, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
-        // 右侧操作项 = 官方 LiquidButton（透明玻璃，按压有官方果冻+光晕）
-        actions.forEach { a ->
-            LiquidButton(
-                onClick = a.onClick,
-                backdrop = backdrop,
-                height = 44.dp,
-                horizontalPadding = 6.dp,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(1.dp),
-                ) {
-                    Icon(a.icon, null, tint = IconDark, modifier = Modifier.size(22.dp))
-                    if (a.label != null) {
-                        Text(a.label, color = LabelGray, fontSize = 10.sp)
+
+        // 右：裸图标列（酷安同款），不再套圆形玻璃泡
+        actions.forEach { a -> ActionColumn(a) }
+    }
+}
+
+/** 图标 + 正下方 9sp 小字；保留 Q 弹按压，但无独立玻璃背景 */
+@Composable
+private fun ActionColumn(action: BarAction) {
+    val scale = remember { Animatable(1f) }
+    Column(
+        Modifier
+            .padding(horizontal = 2.dp)
+            .scale(scale.value)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        scale.animateTo(0.85f, spring(stiffness = Spring.StiffnessMedium))
+                        tryAwaitRelease()
+                        scale.animateTo(1.12f, spring(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioMediumBouncy))
+                        scale.animateTo(1f, spring(stiffness = Spring.StiffnessMedium))
+                        action.onClick()
                     }
-                }
-            }
+                )
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(action.icon, null, tint = IconDark, modifier = Modifier.size(22.dp))
+        if (!action.label.isNullOrEmpty()) {
+            Text(action.label, color = LabelGray, fontSize = 9.sp, maxLines = 1)
         }
     }
 }
