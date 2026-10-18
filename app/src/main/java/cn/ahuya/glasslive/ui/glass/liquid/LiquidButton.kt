@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.CircleShape // 适配1：官方示例用 com.kyant.shapes.Capsule（需额外 shapes 依赖），CircleShape 同为 CornerBasedShape，lens 完全兼容
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,8 +40,9 @@ fun LiquidButton(
     isInteractive: Boolean = true,
     tint: Color = Color.Unspecified,
     surfaceColor: Color = Color.Unspecified,
-    height: Dp = 48.dp,               // 适配2：高度/内边距参数化，方便底栏排版
+    height: Dp = 48.dp,
     horizontalPadding: Dp = 16.dp,
+    blurRadius: Dp = 2.dp,   // ⭐ 新增：通透度可调
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
@@ -55,11 +56,11 @@ fun LiquidButton(
                 shape = { CircleShape },
                 effects = {
                     vibrancy()
-                    blur(2f.dp.toPx())
+                    blur(blurRadius.toPx())
                     lens(12f.dp.toPx(), 24f.dp.toPx())
                 },
                 layerBlock = if (isInteractive) {
-                    {   // ⭐ 官方果冻物理：按压缩放 + tanh 阻尼拖拽位移
+                    {
                         val width = size.width
                         val height = size.height
                         val progress = interactiveHighlight.pressProgress
