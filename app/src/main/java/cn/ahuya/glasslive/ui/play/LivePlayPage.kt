@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +23,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
@@ -39,9 +45,11 @@ fun LivePlayPage(
 ) {
     val state by viewModel.uiState.collectAsState()
     var videoReady by remember { mutableStateOf(false) }
+    var frame by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
+    // 教程 Step2：背景色也画进 backdrop，杜绝透明像素
     val backdrop = rememberLayerBackdrop {
         drawRect(Color.Black)
         drawContent()
@@ -55,29 +63,34 @@ fun LivePlayPage(
             )
             is PlayState.Error -> CenterText(s.msg)
             is PlayState.Playing -> {
-                HuyaPlayerView(
-                    url = s.url,
-                    onError = { err ->
-                        videoReady = false
-                        viewModel.onPlayerError(err)
-                    },
-                    onFirstFrame = { videoReady = true },
-                    modifier = Modifier.fillMaxSize(),
-                    // ⭐ 玻璃胶囊悬浮在视频画面内部底部：背后是活画面，玻璃才有东西可透
-                    overlay = {
-                        LiquidGlassBottomBar(
-                            backdrop = backdrop,
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                            onInputClick = { /* TODO: 发弹幕面板 */ },
-                            actions = listOf(
-                                BarAction(Icons.Outlined.Hd, "清晰度") { /* TODO */ },
-                                BarAction(Icons.Outlined.Settings, "设置") { /* TODO */ },
-                                BarAction(Icons.Outlined.Share, "转发") { /* TODO */ },
-                            ),
+                // ① 被录制层（教程 Step1）：模糊直播帧填充 + 清晰视频
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                    val f = frame
+                    if (f != null) {
+                        // 抖音式背景：截帧铺满竖屏黑边区，玻璃在屏幕底部也有"活背景"可采样
+                        Image(
+                            bitmap = f,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(36.dp)
+                                .alpha(0.55f),
                         )
-                    },
-                )
+                    }
+                    HuyaPlayerView(
+                        url = s.url,
+                        onError = { err ->
+                            videoReady = false
+                            viewModel.onPlayerError(err)
+                        },
+                        onFirstFrame = { videoReady = true },
+                        onFrame = { frame = it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
 
+                // ② 防黑屏遮罩（兄弟节点，不被录制）
                 AnimatedVisibility(
                     visible = !videoReady,
                     enter = fadeIn(),
@@ -90,6 +103,18 @@ fun LivePlayPage(
                         CircularProgressIndicator(color = Color(0xFF00D2FF))
                     }
                 }
+
+                // ③ 玻璃胶囊（教程结构：layerBackdrop 的兄弟节点，绝不放进被录制子树）
+                LiquidGlassBottomBar(
+                    backdrop = backdrop,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onInputClick = { /* TODO: 发弹幕面板 */ },
+                    actions = listOf(
+                        BarAction(Icons.Outlined.Hd, "清晰度") { /* TODO */ },
+                        BarAction(Icons.Outlined.Settings, "设置") { /* TODO */ },
+                        BarAction(Icons.Outlined.Share, "转发") { /* TODO */ },
+                    ),
+                )
             }
         }
     }
