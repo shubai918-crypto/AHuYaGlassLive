@@ -33,11 +33,11 @@ data class BarAction(
     val onClick: () -> Unit = {},
 )
 
-private val PillGray = Color(0xFF7C7F84)
-private val IconDark = Color(0xFF3F4245)
-private val LabelGray = Color(0xFF55585C)
+// ⭐ 酷安墨色层级：近黑图标 / 深灰标签 / 近黑胶囊文字
+private val PillInk = Color(0xFF2B2D31)
+private val IconInk = Color(0xFF24262B)
+private val LabelInk = Color(0xFF4A4C50)
 
-/** ⭐ 粗黑体 + 光学居中 + 去字体内边距（解决"没居中/发毛"） */
 private fun boldStyle(size: TextUnit, color: Color) = TextStyle(
     color = color,
     fontSize = size,
@@ -63,50 +63,50 @@ fun LiquidGlassBottomBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 左：写弹幕胶囊（浅灰实面，字粗黑光学居中）
+        // 左：输入胶囊（比外杯更白一档）
         LiquidButton(
             onClick = onInputClick,
             backdrop = backdrop,
             modifier = Modifier.weight(1f),
             height = 56.dp,
             horizontalPadding = 16.dp,
-            surfaceColor = Color(0xFFEDEFF2).copy(alpha = 0.90f),
+            blurRadius = 10.dp,
+            surfaceColor = Color.White.copy(alpha = 0.50f),
         ) {
-            Icon(Icons.Default.Edit, null, tint = PillGray, modifier = Modifier.size(16.dp))
-            Text(inputHint, style = boldStyle(15.sp, PillGray))
+            Icon(Icons.Default.Edit, null, tint = PillInk, modifier = Modifier.size(16.dp))
+            Text(inputHint, style = boldStyle(15.sp, PillInk))
         }
 
-        // 右：通透玻璃胶囊（白 0.30 + blur10），四个"图标+粗黑小字"直排，无内嵌按压块
+        // 右：操作胶囊（亮白奶玻璃）
         LiquidButton(
             onClick = { },
             backdrop = backdrop,
             height = 56.dp,
             horizontalPadding = 4.dp,
-            blurRadius = 10.dp,
-            surfaceColor = Color.White.copy(alpha = 0.30f),
+            blurRadius = 12.dp,
+            surfaceColor = Color.White.copy(alpha = 0.42f),
         ) {
             actions.forEach { a -> ActionColumn(a) }
         }
     }
 }
 
-/** 图标 + 粗黑小字；点击无涟漪（灰色按压块已移除），物理反馈交给外层 LiquidButton */
 @Composable
 private fun ActionColumn(action: BarAction) {
     Column(
         Modifier
             .clickable(
                 interactionSource = null,
-                indication = null,   // ⭐ 干掉内嵌灰色按压效果
+                indication = null,
                 onClick = action.onClick
             )
             .padding(horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Icon(action.icon, null, tint = IconDark, modifier = Modifier.size(22.dp))
+        Icon(action.icon, null, tint = IconInk, modifier = Modifier.size(22.dp))
         if (!action.label.isNullOrEmpty()) {
-            Text(action.label, style = boldStyle(10.sp, LabelGray))
+            Text(action.label, style = boldStyle(10.sp, LabelInk))
         }
     }
 }
