@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
@@ -33,10 +34,9 @@ data class BarAction(
     val onClick: () -> Unit = {},
 )
 
-// ⭐ 酷安墨色层级：近黑图标 / 深灰标签 / 近黑胶囊文字
-private val PillInk = Color(0xFF2B2D31)
-private val IconInk = Color(0xFF24262B)
-private val LabelInk = Color(0xFF4A4C50)
+private val PillGray = Color(0xFF7C7F84)
+private val IconDark = Color(0xFF3F4245)
+private val LabelGray = Color(0xFF55585C)
 
 private fun boldStyle(size: TextUnit, color: Color) = TextStyle(
     color = color,
@@ -58,33 +58,34 @@ fun LiquidGlassBottomBar(
     Row(
         modifier
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 12.dp)
+            // ⭐ 关键修改 1：增加垂直 padding，让胶囊"浮"起来，不再贴底
+            .padding(horizontal = 16.dp, vertical = 16.dp)
             .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 左：输入胶囊（比外杯更白一档）
+        // 左侧：写弹幕胶囊
+        // ⭐ 关键修改 2：去掉 weight(1f)，改为固定宽度 140dp，高度降到 48dp，更精致
         LiquidButton(
             onClick = onInputClick,
             backdrop = backdrop,
-            modifier = Modifier.weight(1f),
-            height = 56.dp,
-            horizontalPadding = 16.dp,
-            blurRadius = 10.dp,
-            surfaceColor = Color.White.copy(alpha = 0.50f),
+            modifier = Modifier.width(140.dp),
+            height = 48.dp,
+            horizontalPadding = 12.dp,
+            surfaceColor = Color(0xFFEDEFF2).copy(alpha = 0.90f),
         ) {
-            Icon(Icons.Default.Edit, null, tint = PillInk, modifier = Modifier.size(16.dp))
-            Text(inputHint, style = boldStyle(15.sp, PillInk))
+            Icon(Icons.Default.Edit, null, tint = PillGray, modifier = Modifier.size(16.dp))
+            Text(inputHint, style = boldStyle(14.sp, PillGray))
         }
 
-        // 右：操作胶囊（亮白奶玻璃）
+        // 右侧：操作胶囊（自然宽度，包裹 4 个图标）
         LiquidButton(
             onClick = { },
             backdrop = backdrop,
-            height = 56.dp,
+            height = 48.dp,
             horizontalPadding = 4.dp,
             blurRadius = 12.dp,
-            surfaceColor = Color.White.copy(alpha = 0.42f),
+            surfaceColor = Color.White.copy(alpha = 0.30f),
         ) {
             actions.forEach { a -> ActionColumn(a) }
         }
@@ -100,13 +101,13 @@ private fun ActionColumn(action: BarAction) {
                 indication = null,
                 onClick = action.onClick
             )
-            .padding(horizontal = 4.dp),
+            .padding(horizontal = 6.dp), // 图标间距稍微加大一点
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Icon(action.icon, null, tint = IconInk, modifier = Modifier.size(22.dp))
+        Icon(action.icon, null, tint = IconDark, modifier = Modifier.size(22.dp))
         if (!action.label.isNullOrEmpty()) {
-            Text(action.label, style = boldStyle(10.sp, LabelInk))
+            Text(action.label, style = boldStyle(10.sp, LabelGray))
         }
     }
 }
