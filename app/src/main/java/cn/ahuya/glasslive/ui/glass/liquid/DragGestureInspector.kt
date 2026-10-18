@@ -57,7 +57,8 @@ private suspend inline fun AwaitPointerEventScope.awaitDragOrUp(
             if (otherDown == null) {
                 return dragEvent
             } else {
-                pointer = otherDown
+                // ⭐ 修复：提取 PointerId
+                pointer = otherDown.id
             }
         } else {
             val hasDragged = dragEvent.previousPosition != dragEvent.position
