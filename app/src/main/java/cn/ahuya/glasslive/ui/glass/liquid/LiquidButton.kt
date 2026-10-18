@@ -24,8 +24,8 @@ import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -42,7 +42,8 @@ fun LiquidButton(
     surfaceColor: Color = Color.Unspecified,
     height: Dp = 48.dp,
     horizontalPadding: Dp = 16.dp,
-    blurRadius: Dp = 2.dp,   // ⭐ 新增：通透度可调
+    blurRadius: Dp = 2.dp,
+    lift: Float = 0.22f,   // ⭐ 背景提亮度：暗背景上也能出酷安那种亮白玻璃
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
@@ -55,7 +56,8 @@ fun LiquidButton(
                 backdrop = backdrop,
                 shape = { CircleShape },
                 effects = {
-                    vibrancy()
+                    // ⭐ 提亮+增饱和（替代 vibrancy，暗背景专用配方）
+                    colorControls(brightness = lift, saturation = 1.4f)
                     blur(blurRadius.toPx())
                     lens(12f.dp.toPx(), 24f.dp.toPx())
                 },
