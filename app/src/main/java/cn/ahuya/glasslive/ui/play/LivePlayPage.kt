@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cn.ahuya.glasslive.player.HuyaPlayerView
 import cn.ahuya.glasslive.player.LivePlayViewModel
@@ -112,6 +113,7 @@ fun LivePlayPage(
                     actions = listOf(
                         BarAction(Icons.Outlined.Hd, "清晰度") { /* TODO */ },
                         BarAction(Icons.Outlined.Settings, "设置") { /* TODO */ },
+                        BarAction(Icons.Outlined.EmojiEmotions, "表情") { /* TODO */ },
                         BarAction(Icons.Outlined.Share, "转发") { /* TODO */ },
                     ),
                 )
