@@ -42,7 +42,6 @@ fun LivePlayPage(
 
     LaunchedEffect(roomId) { viewModel.enterRoom(roomId) }
 
-    // ⭐ 教程 Step2：背景色也要画进 backdrop，避免透明像素
     val backdrop = rememberLayerBackdrop {
         drawRect(Color.Black)
         drawContent()
@@ -56,41 +55,41 @@ fun LivePlayPage(
             )
             is PlayState.Error -> CenterText(s.msg)
             is PlayState.Playing -> {
-                // ⭐ 教程 Step1：layerBackdrop 包在背景内容（播放器）上
-                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                    HuyaPlayerView(
-                        url = s.url,
-                        onError = { err ->
-                            videoReady = false
-                            viewModel.onPlayerError(err)
-                        },
-                        onFirstFrame = { videoReady = true },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    AnimatedVisibility(
-                        visible = !videoReady,
-                        enter = fadeIn(),
-                        exit = fadeOut(animationSpec = tween(600)),
+                HuyaPlayerView(
+                    url = s.url,
+                    onError = { err ->
+                        videoReady = false
+                        viewModel.onPlayerError(err)
+                    },
+                    onFirstFrame = { videoReady = true },
+                    modifier = Modifier.fillMaxSize(),
+                    // ⭐ 玻璃胶囊悬浮在视频画面内部底部：背后是活画面，玻璃才有东西可透
+                    overlay = {
+                        LiquidGlassBottomBar(
+                            backdrop = backdrop,
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            onInputClick = { /* TODO: 发弹幕面板 */ },
+                            actions = listOf(
+                                BarAction(Icons.Outlined.Hd, "清晰度") { /* TODO */ },
+                                BarAction(Icons.Outlined.Settings, "设置") { /* TODO */ },
+                                BarAction(Icons.Outlined.Share, "转发") { /* TODO */ },
+                            ),
+                        )
+                    },
+                )
+
+                AnimatedVisibility(
+                    visible = !videoReady,
+                    enter = fadeIn(),
+                    exit = fadeOut(animationSpec = tween(600)),
+                ) {
+                    Box(
+                        Modifier.fillMaxSize().background(Color(0xFF101014)),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(
-                            Modifier.fillMaxSize().background(Color(0xFF101014)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(color = Color(0xFF00D2FF))
-                        }
+                        CircularProgressIndicator(color = Color(0xFF00D2FF))
                     }
                 }
-
-                LiquidGlassBottomBar(
-                    backdrop = backdrop,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    onInputClick = { /* TODO: 发弹幕面板 */ },
-                    actions = listOf(
-                        BarAction(Icons.Outlined.Hd, "清晰度") { /* TODO */ },
-                        BarAction(Icons.Outlined.Settings, "设置") { /* TODO */ },
-                        BarAction(Icons.Outlined.Share, "转发") { /* TODO */ },
-                    ),
-                )
             }
         }
     }
